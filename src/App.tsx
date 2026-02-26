@@ -26,8 +26,7 @@ type Route =
   | { page: "home"; params: URLSearchParams }
   | { page: "fund"; id: string }
   | { page: "vcs"; params: URLSearchParams }
-  | { page: "vc"; id: string }
-  | { page: "match" };
+  | { page: "vc"; id: string };
 
 type ViewType = "table" | "card";
 type SortDir = "asc" | "desc";
@@ -47,7 +46,6 @@ function Icon({ path, className = "", size = 16 }: { path: string; className?: s
 const navItems = [
   { label: "Funds", hash: "/", page: "home" },
   { label: "VCs", hash: "/vcs", page: "vcs" },
-  { label: "Match", hash: "/match", page: "match" },
 ] as const;
 
 function parseRoute(): Route {
@@ -58,7 +56,6 @@ function parseRoute(): Route {
   if (parts[0] === "fund" && parts[1]) return { page: "fund", id: decodeURIComponent(parts[1]) };
   if (parts[0] === "vcs") return { page: "vcs", params: new URLSearchParams(query) };
   if (parts[0] === "vc" && parts[1]) return { page: "vc", id: decodeURIComponent(parts[1]) };
-  if (parts[0] === "match") return { page: "match" };
   return { page: "home", params: new URLSearchParams(query) };
 }
 
@@ -126,7 +123,6 @@ function App() {
         {route.page === "fund" && <FundDetailPage id={route.id} />}
         {route.page === "vcs" && <VcsPage params={route.params} />}
         {route.page === "vc" && <VcDetailPage id={route.id} />}
-        {route.page === "match" && <MatchPage />}
       </main>
     </div>
   );
@@ -143,10 +139,9 @@ function FundsPage({ params }: { params: URLSearchParams }) {
   const [filters, setFilters] = useState<Record<string, string[]>>({
     stage: params.getAll("stage"),
     sector: params.getAll("sector"),
-    region: params.getAll("region"),
     size: params.getAll("size"),
   });
-  const [openFilter, setOpenFilter] = useState<"stage" | "sector" | "region" | "size" | null>(null);
+  const [openFilter, setOpenFilter] = useState<"stage" | "sector" | "size" | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const filterRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = debounce(query, 300);
@@ -212,18 +207,13 @@ function FundsPage({ params }: { params: URLSearchParams }) {
   const options = useMemo(() => {
     const stageSet = new Set<string>();
     const sectorSet = new Set<string>();
-    const regionSet = new Set<string>();
     funds.forEach((f) => {
       (f.all_tags || []).forEach((v) => stageSet.add(v));
-      (f.sector_tags || []).forEach((v) => {
-        sectorSet.add(v);
-        if (v.includes("권") || v.includes("지역")) regionSet.add(v);
-      });
+      (f.sector_tags || []).forEach((v) => sectorSet.add(v));
     });
     return {
       stage: [...stageSet].slice(0, 10),
       sector: [...sectorSet].slice(0, 20),
-      region: [...regionSet].slice(0, 10),
       size: ["~300억", "300~1000억", "1000억~"],
     };
   }, [funds]);
@@ -237,7 +227,6 @@ function FundsPage({ params }: { params: URLSearchParams }) {
       const checks: Record<string, boolean> = {
         stage: filters.stage.length === 0 || filters.stage.some((v) => (f.all_tags || []).includes(v)),
         sector: filters.sector.length === 0 || filters.sector.some((v) => (f.sector_tags || []).includes(v)),
-        region: filters.region.length === 0 || filters.region.some((v) => (f.sector_tags || []).includes(v)),
         size: filters.size.length === 0 || filters.size.includes(sizeBucket),
       };
       return Object.values(checks).every(Boolean);
@@ -249,7 +238,7 @@ function FundsPage({ params }: { params: URLSearchParams }) {
   };
 
   const resetFilters = () => {
-    setFilters({ stage: [], sector: [], region: [], size: [] });
+    setFilters({ stage: [], sector: [], size: [] });
     setQuery("");
     setCurrentPage(1);
   };
@@ -257,10 +246,9 @@ function FundsPage({ params }: { params: URLSearchParams }) {
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginatedFunds = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
-  const filterLabel: Record<"stage" | "sector" | "region" | "size", string> = {
+  const filterLabel: Record<"stage" | "sector" | "size", string> = {
     stage: "투자단계",
     sector: "섹터",
-    region: "지역",
     size: "규모",
   };
 
@@ -282,7 +270,7 @@ function FundsPage({ params }: { params: URLSearchParams }) {
 
         <div ref={filterRef} className="relative z-10 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-          {(["stage", "sector", "region", "size"] as const).map((k) => (
+          {(["stage", "sector", "size"] as const).map((k) => (
             <button
               key={k}
               onClick={() => setOpenFilter((prev) => (prev === k ? null : k))}
@@ -526,15 +514,6 @@ function VcDetailPage({ id }: { id: string }) {
         <h3 className="mb-2">운용 펀드</h3>
         <ul className="space-y-2 text-sm text-white/70">{(data.funds || []).map((f: any) => <li key={f.id}>{f.fund_name} · {formatAmount(f.total_amount)}</li>)}</ul>
       </div>
-    </section>
-  );
-}
-
-function MatchPage() {
-  return (
-    <section className="glass-card p-8 text-center">
-      <h2 className="text-xl font-semibold">Match</h2>
-      <p className="mt-2 text-sm text-white/60">VC-펀드 매칭 뷰가 곧 제공됩니다.</p>
     </section>
   );
 }
