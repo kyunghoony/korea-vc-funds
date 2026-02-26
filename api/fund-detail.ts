@@ -2,7 +2,7 @@
 // api/fund-detail.ts
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getFundDetail } from "../services/funds/fund-explorer.js";
+import { getFundDetail } from "../services/fund-explorer";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {

@@ -2,8 +2,8 @@
 // api/funds.ts
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { listFunds, getSectorList } from "../services/funds/fund-explorer.js";
-import type { FundSortKey } from "../services/funds/fund-explorer.js";
+import { listFunds, getSectorList } from "../services/fund-explorer";
+import type { FundSortKey } from "../services/fund-explorer";
 
 const VALID_SORTS = new Set([
   "amount_desc", "amount_asc",
