@@ -283,7 +283,7 @@ function FundsPage({ params }: { params: URLSearchParams }) {
     setPagination((prev) => ({ ...prev, page: 1 }));
     setFilters((prev) => {
       const exists = prev[key].includes(value);
-      return { ...prev, [key]: exists ? prev[key].filter((v) => v !== value) : [...prev[key], value] };
+      return { ...prev, [key]: exists ? [] : [value] };
     });
   };
 
@@ -517,7 +517,7 @@ function VcsPage({ params }: { params: URLSearchParams }) {
     setPagination((prev) => ({ ...prev, page: 1 }));
     setFilters((prev) => {
       const exists = (prev[key] || []).includes(value);
-      return { ...prev, [key]: exists ? prev[key].filter((v) => v !== value) : [...(prev[key] || []), value] };
+      return { ...prev, [key]: exists ? [] : [value] };
     });
   };
 

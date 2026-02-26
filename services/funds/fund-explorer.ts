@@ -222,7 +222,7 @@ export async function getFundStats() {
         (SELECT COUNT(DISTINCT TRIM(vc_name))
          FROM vc_funds, LATERAL unnest(string_to_array(company_name, ' / ')) AS vc_name
         ) as total_vcs,
-        SUM(total_amount) FILTER (WHERE is_active) as active_aum,
+        SUM(amount_億) FILTER (WHERE is_active) as active_aum,
         COUNT(*) FILTER (WHERE lifecycle = '적극투자기' AND is_active) as hot_funds
       FROM vc_funds
     `,
@@ -238,7 +238,7 @@ export async function getFundStats() {
       SELECT TRIM(vc_name) as company_name,
         COUNT(*) as funds,
         COUNT(*) FILTER (WHERE is_active) as active,
-        SUM(total_amount) as aum
+        SUM(amount_億) as aum
       FROM vc_funds,
            LATERAL unnest(string_to_array(company_name, ' / ')) AS vc_name
       GROUP BY TRIM(vc_name)
