@@ -1,1 +1,1 @@
-export * from "./funds/vc-explorer";
+export * from "./funds/vc-explorer.js";

@@ -1,1 +1,1 @@
-export * from "./funds/fund-explorer";
+export * from "./funds/fund-explorer.js";
