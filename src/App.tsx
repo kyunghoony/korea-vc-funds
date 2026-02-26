@@ -22,6 +22,13 @@ type Vc = {
   sectors: string[];
 };
 
+type VcDashboardStats = {
+  total_vcs: number;
+  active_vcs: number;
+  total_aum: number;
+  avg_aum_per_vc: number;
+};
+
 type Route =
   | { page: "home"; params: URLSearchParams }
   | { page: "fund"; id: string }
@@ -75,6 +82,11 @@ function debounce<T>(value: T, ms: number) {
 function formatAmount(v?: number) {
   if (!v && v !== 0) return "-";
   return `${v.toLocaleString()}억`;
+}
+
+function formatJo(v?: number) {
+  if (!v && v !== 0) return "-";
+  return `${(v / 10000).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}조`;
 }
 
 function highlight(text: string, q: string) {
@@ -458,30 +470,61 @@ function FundDetailPage({ id }: { id: string }) {
 function VcsPage({ params }: { params: URLSearchParams }) {
   const [q, setQ] = useState(params.get("q") ?? "");
   const [list, setList] = useState<Vc[]>([]);
+  const [totalVCs, setTotalVCs] = useState(0);
+  const [stats, setStats] = useState<VcDashboardStats | null>(null);
   const debounced = debounce(q, 300);
 
   useEffect(() => {
-    fetch(`/api/vcs?limit=200&search=${encodeURIComponent(debounced)}`)
+    fetch(`/api/vcs?limit=1000&search=${encodeURIComponent(debounced)}`)
       .then((r) => r.json())
-      .then((d) =>
-        setList(
-          (d.data?.vcs || d.vcs || []).map((v: any) => ({
-            name: v.name || v.company_name,
-            total_aum: v.total_aum || 0,
-            total_funds: v.total_funds || v.fund_count || 0,
-            active_funds: v.active_funds || v.active_count || 0,
-            sectors: v.sectors || [],
-          }))
-        )
-      )
-      .catch(() => setList([]));
+      .then((d) => {
+        const rows = (d.data?.vcs || d.vcs || []).map((v: any) => ({
+          name: v.name || v.company_name,
+          total_aum: v.total_aum || 0,
+          total_funds: v.total_funds || v.fund_count || 0,
+          active_funds: v.active_funds || v.active_count || 0,
+          sectors: v.sectors || [],
+        }));
+        setList(rows);
+        setTotalVCs(Number(d.data?.total || rows.length));
+      })
+      .catch(() => {
+        setList([]);
+        setTotalVCs(0);
+      });
   }, [debounced]);
+
+  useEffect(() => {
+    fetch('/api/vc-stats')
+      .then((r) => r.json())
+      .then((d) => setStats(d.data || d))
+      .catch(() => setStats(null));
+  }, []);
 
   return (
     <section className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <article className="glass-card p-4">
+          <p className="text-sm text-white/60">총 VC사</p>
+          <p className="mt-1 text-2xl font-semibold">{stats?.total_vcs?.toLocaleString() ?? "-"}</p>
+        </article>
+        <article className="glass-card p-4">
+          <p className="text-sm text-white/60">활성 VC사</p>
+          <p className="mt-1 text-2xl font-semibold">{stats?.active_vcs?.toLocaleString() ?? "-"}</p>
+        </article>
+        <article className="glass-card p-4">
+          <p className="text-sm text-white/60">총 운용총액</p>
+          <p className="mt-1 text-2xl font-semibold">{formatJo(stats?.total_aum)}</p>
+        </article>
+        <article className="glass-card p-4">
+          <p className="text-sm text-white/60">평균 AUM / VC</p>
+          <p className="mt-1 text-2xl font-semibold">{formatAmount(stats?.avg_aum_per_vc)}</p>
+        </article>
+      </div>
+
       <div className="glass-card p-4 flex gap-3 items-center">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="VC 검색" className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm" />
-        <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-sm text-emerald-300">{list.length} VCs</span>
+        <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-sm text-emerald-300">{totalVCs.toLocaleString()} VCs</span>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         {list.map((vc) => (

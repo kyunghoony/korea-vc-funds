@@ -11,6 +11,14 @@ function getSQL(): NeonSQL {
   return neon(process.env.POSTGRES_URL!) as unknown as NeonSQL;
 }
 
+function normalizeCompanyName(name: string): string {
+  return name
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/주식회사|㈜|\(주\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // === VC 목록 파라미터 ===
 export interface VCListParams {
   search?: string;
@@ -35,7 +43,7 @@ export async function listVCs(params: VCListParams) {
   const allVCs = await sql`
     WITH fund_agg AS (
       SELECT
-        TRIM(vc_name) as company_name,
+        TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g')) as company_name,
         COUNT(*)::int as total_funds,
         COUNT(*) FILTER (WHERE is_active)::int as active_funds,
         COALESCE(SUM(amount_억), 0)::int as total_aum,
@@ -44,16 +52,16 @@ export async function listVCs(params: VCListParams) {
         COUNT(*) FILTER (WHERE lifecycle = '적극투자기')::int as hot_funds
       FROM vc_funds,
            LATERAL unnest(string_to_array(company_name, ' / ')) AS vc_name
-      WHERE (${searchVal}::text IS NULL OR TRIM(vc_name) ILIKE ${searchVal}::text)
-      GROUP BY TRIM(vc_name)
+      WHERE (${searchVal}::text IS NULL OR TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g')) ILIKE ${searchVal}::text)
+      GROUP BY TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g'))
     ),
     sector_agg AS (
-      SELECT TRIM(vc_name) as company_name, array_agg(DISTINCT tag ORDER BY tag) as sectors
+      SELECT TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g')) as company_name, array_agg(DISTINCT tag ORDER BY tag) as sectors
       FROM vc_funds,
            LATERAL unnest(string_to_array(company_name, ' / ')) AS vc_name,
            LATERAL unnest(sector_tags) AS tag
-      WHERE (${searchVal}::text IS NULL OR TRIM(vc_name) ILIKE ${searchVal}::text)
-      GROUP BY TRIM(vc_name)
+      WHERE (${searchVal}::text IS NULL OR TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g')) ILIKE ${searchVal}::text)
+      GROUP BY TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g'))
     )
     SELECT
       f.company_name as name,
@@ -70,7 +78,7 @@ export async function listVCs(params: VCListParams) {
 
   // Apply filters in JavaScript (~500 rows, trivially fast)
   let filtered = allVCs.map((vc) => ({
-    name: vc.name as string,
+    name: normalizeCompanyName(vc.name as string),
     total_funds: Number(vc.total_funds),
     active_funds: Number(vc.active_funds),
     total_aum: Number(vc.total_aum),
@@ -145,14 +153,16 @@ export async function listVCs(params: VCListParams) {
 // === VC 상세 (펀드 리스트 + 통계 breakdown) ===
 export async function getVCDetailWithStats(companyName: string) {
   const sql = getSQL();
+  const normalizedName = normalizeCompanyName(companyName);
 
   // Fetch all funds where this VC participates (solo + co-GP)
   const funds = await sql`
     SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
            fund_manager_name, account_type, total_amount, amount_억,
            sector_tags, is_govt_matched, is_active, lifecycle
-    FROM vc_funds
-    WHERE ${companyName} = ANY(string_to_array(company_name, ' / '))
+    FROM vc_funds,
+         LATERAL unnest(string_to_array(company_name, ' / ')) AS vc_name
+    WHERE TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g')) = ${normalizedName}
     ORDER BY amount_억 DESC NULLS LAST
   `;
 
@@ -216,7 +226,7 @@ export async function getVCDetailWithStats(companyName: string) {
   }));
 
   return {
-    name: companyName,
+    name: normalizedName,
     total_funds: totalFunds,
     active_funds: activeFunds,
     total_aum: totalAUM,
@@ -240,15 +250,15 @@ export async function getVCDashboardStats() {
     // Total VCs, active VCs, total AUM (unnest co-GP names for VC counts; plain SUM for AUM to avoid double-counting)
     sql`
       SELECT
-        COUNT(DISTINCT TRIM(vc_name))::int as total_vcs,
-        COUNT(DISTINCT TRIM(vc_name)) FILTER (WHERE is_active = TRUE)::int as active_vcs,
+        COUNT(DISTINCT TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g')))::int as total_vcs,
+        COUNT(DISTINCT TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g'))) FILTER (WHERE is_active = TRUE)::int as active_vcs,
         (SELECT COALESCE(SUM(amount_억), 0) FROM vc_funds)::bigint as total_aum
       FROM vc_funds,
            LATERAL unnest(string_to_array(company_name, ' / ')) AS vc_name
     `,
     // Top sectors by distinct VC count (unnest co-GP names)
     sql`
-      SELECT tag as sector, COUNT(DISTINCT TRIM(vc_name))::int as vc_count
+      SELECT tag as sector, COUNT(DISTINCT TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g')))::int as vc_count
       FROM vc_funds,
            LATERAL unnest(string_to_array(company_name, ' / ')) AS vc_name,
            LATERAL unnest(sector_tags) AS tag
@@ -259,10 +269,10 @@ export async function getVCDashboardStats() {
     // Size distribution: group VCs by total AUM bracket (unnest co-GP names)
     sql`
       WITH vc_aum AS (
-        SELECT TRIM(vc_name) as vc, COALESCE(SUM(amount_억), 0) as aum
+        SELECT TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g')) as vc, COALESCE(SUM(amount_억), 0) as aum
         FROM vc_funds,
              LATERAL unnest(string_to_array(company_name, ' / ')) AS vc_name
-        GROUP BY TRIM(vc_name)
+        GROUP BY TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(vc_name, '\\([^)]*\\)', ' ', 'g'), '주식회사|㈜|\\(주\\)', ' ', 'g'), '\\s+', ' ', 'g'))
       )
       SELECT
         COUNT(*) FILTER (WHERE aum >= 5000)::int as mega,
