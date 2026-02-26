@@ -41,7 +41,6 @@ export interface FundListParams {
   minAmount?: number;
   maxAmount?: number;
   lifecycle?: string;
-  region?: string;
   sort?: FundSortKey;
   page?: number;
   limit?: number;
@@ -59,7 +58,6 @@ export async function listFunds(params: FundListParams) {
     minAmount,
     maxAmount,
     lifecycle,
-    region,
     sort = "amount_desc",
     page = 1,
     limit = 20,
@@ -74,7 +72,6 @@ export async function listFunds(params: FundListParams) {
   const minAmountVal = minAmount || null;
   const maxAmountVal = maxAmount || null;
   const lifecycleVal = lifecycle || null;
-  const regionVal = region || null;
   const govtBool = govt ? true : false;
 
   // Count query (no ORDER BY needed) — single tagged template
@@ -95,15 +92,14 @@ export async function listFunds(params: FundListParams) {
       AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
       AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
       AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-      AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-      AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
+      AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text OR (${lifecycleVal}::text = '후기/회수기' AND lifecycle = '후기회수기'))
   `;
 
   // Data query — must use tagged template per sort option (neon driver requires it)
   const dataResult = await queryFundsSorted(
     sql, normalizeSort(sort),
     active, govtBool, searchVal, sectorVal, stageVal, companyVal,
-    minAmountVal, maxAmountVal, lifecycleVal, regionVal,
+    minAmountVal, maxAmountVal, lifecycleVal,
     limit, offset,
   );
 
@@ -134,7 +130,6 @@ async function queryFundsSorted(
   minAmountVal: number | null,
   maxAmountVal: number | null,
   lifecycleVal: string | null,
-  regionVal: string | null,
   limit: number,
   offset: number,
 ) {
@@ -172,10 +167,9 @@ async function queryFundsSorted(
       AND ($6::text IS NULL OR company_name ILIKE $6::text)
       AND ($7::int IS NULL OR amount_억 >= $7::int)
       AND ($8::int IS NULL OR amount_억 <= $8::int)
-      AND ($9::text IS NULL OR lifecycle = $9::text)
-      AND ($10::text IS NULL OR $10::text = ANY(sector_tags))
+      AND ($9::text IS NULL OR lifecycle = $9::text OR ($9::text = '후기/회수기' AND lifecycle = '후기회수기'))
     ORDER BY ${orderBy}
-    LIMIT $11 OFFSET $12
+    LIMIT $10 OFFSET $11
   `;
 
   return sql(query, [
@@ -188,7 +182,6 @@ async function queryFundsSorted(
     minAmountVal,
     maxAmountVal,
     lifecycleVal,
-    regionVal,
     limit,
     offset,
   ]);
