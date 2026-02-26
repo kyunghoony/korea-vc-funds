@@ -1,7 +1,7 @@
 // services/funds/index.ts — barrel export
 
-export { matchFunds, extractDealSignals } from "./fund-matcher";
-export type { DealSignals, MatchedFund, MatchReason } from "./fund-matcher";
+export { matchFunds, extractDealSignals } from "./fund-matcher.js";
+export type { DealSignals, MatchedFund, MatchReason } from "./fund-matcher.js";
 
 export {
   listFunds,
@@ -9,5 +9,5 @@ export {
   getVCDetail,
   getFundStats,
   getSectorList,
-} from "./fund-explorer";
-export type { FundListParams, FundSortKey } from "./fund-explorer";
+} from "./fund-explorer.js";
+export type { FundListParams, FundSortKey } from "./fund-explorer.js";

@@ -2,7 +2,7 @@
 // api/vcs.ts
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { listVCs } from "../services/vc-explorer";
+import { listVCs } from "../services/vc-explorer.js";
 
 const VALID_SORTS = new Set(["total_aum", "fund_count", "active_count", "name", "hot_funds", "avg_fund_size", "latest_fund_date"]);
 const VALID_ORDERS = new Set(["asc", "desc"]);
