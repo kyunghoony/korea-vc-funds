@@ -75,6 +75,10 @@ CREATE INDEX idx_funds_account ON vc_funds(account_type);
 CREATE INDEX idx_funds_company ON vc_funds(company_name);
 CREATE INDEX idx_funds_maturity ON vc_funds(maturity_date);
 CREATE INDEX idx_funds_amount ON vc_funds(amount_억 DESC);
+CREATE INDEX IF NOT EXISTS idx_funds_fund_name ON vc_funds(fund_name);
+CREATE INDEX IF NOT EXISTS idx_funds_registered_date ON vc_funds(registered_date DESC);
+CREATE INDEX IF NOT EXISTS idx_funds_company_name ON vc_funds(company_name);
+CREATE INDEX IF NOT EXISTS idx_funds_amount_desc ON vc_funds(amount_억 DESC);
 CREATE INDEX idx_matches_deal ON fund_deal_matches(deal_analysis_id);
 CREATE INDEX idx_matches_score ON fund_deal_matches(match_score DESC);
 
