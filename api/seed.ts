@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { neon } from "@neondatabase/serverless";
-import fundsData from "../data/funds.json";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 type FundSeedRow = {
   asct_id: string;
@@ -29,6 +30,13 @@ type NeonSQL = ((strings: TemplateStringsArray, ...values: any[]) => Promise<Rec
   ((query: string, params?: any[]) => Promise<Record<string, any>[]>);
 
 const BATCH_SIZE = 100;
+
+const fundsDataPath =
+  typeof __dirname !== "undefined"
+    ? join(__dirname, "..", "data", "funds.json")
+    : join(process.cwd(), "data", "funds.json");
+
+const fundsData = JSON.parse(readFileSync(fundsDataPath, "utf-8")) as FundSeedRow[];
 
 const REQUIRED_COLUMNS: Array<{ name: string; type: string }> = [
   { name: "asct_id", type: "TEXT" },
@@ -172,7 +180,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const sql = getSQL();
-    const rows = fundsData as FundSeedRow[];
+    const rows = fundsData;
 
     await ensureSeedColumns(sql);
 
