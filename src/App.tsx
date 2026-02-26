@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+
 
 type Fund = {
   asct_id: string;
@@ -25,9 +26,29 @@ type Route =
   | { page: "home"; params: URLSearchParams }
   | { page: "fund"; id: string }
   | { page: "vcs"; params: URLSearchParams }
-  | { page: "vc"; id: string };
+  | { page: "vc"; id: string }
+  | { page: "match" };
 
-const chipClass = "px-3 py-1.5 rounded-full text-xs border border-white/15 hover:border-blue-400/60 transition";
+type ViewType = "table" | "card";
+type SortDir = "asc" | "desc";
+
+type SortKey = "fund_name" | "company_name" | "amount_억" | "registered_date";
+
+
+function Icon({ path, className = "", size = 16 }: { path: string; className?: string; size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} width={size} height={size} aria-hidden>
+      <path d={path} />
+    </svg>
+  );
+}
+
+
+const navItems = [
+  { label: "Funds", hash: "/", page: "home" },
+  { label: "VCs", hash: "/vcs", page: "vcs" },
+  { label: "Match", hash: "/match", page: "match" },
+] as const;
 
 function parseRoute(): Route {
   const hash = window.location.hash || "#/";
@@ -37,6 +58,7 @@ function parseRoute(): Route {
   if (parts[0] === "fund" && parts[1]) return { page: "fund", id: decodeURIComponent(parts[1]) };
   if (parts[0] === "vcs") return { page: "vcs", params: new URLSearchParams(query) };
   if (parts[0] === "vc" && parts[1]) return { page: "vc", id: decodeURIComponent(parts[1]) };
+  if (parts[0] === "match") return { page: "match" };
   return { page: "home", params: new URLSearchParams(query) };
 }
 
@@ -62,7 +84,7 @@ function highlight(text: string, q: string) {
   if (!q.trim()) return text;
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const regex = new RegExp(`(${escaped})`, "ig");
-  return text.split(regex).map((part, i) => (regex.test(part) ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>));
+  return text.split(regex).map((part, i) => (part.toLowerCase() === q.toLowerCase() ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>));
 }
 
 function App() {
@@ -75,30 +97,48 @@ function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-slate-100">
-      <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
-        <header className="glass-card p-4 flex items-center justify-between">
-          <button onClick={() => navigate("/")} className="text-xl font-semibold tracking-tight">Korea VC Funds</button>
-          <nav className="flex gap-2 text-sm">
-            <button className={chipClass} onClick={() => navigate("/")}>Funds</button>
-            <button className={chipClass} onClick={() => navigate("/vcs")}>VCs</button>
+    <div className="min-h-screen bg-[#09090b] text-white">
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#09090b]/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 md:px-8">
+          <button onClick={() => navigate("/")} className="text-lg font-semibold tracking-tight">Korea VC Funds</button>
+          <nav className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-1">
+            {navItems.map((item) => {
+              const active = route.page === item.page;
+              return (
+                <button
+                  key={item.label}
+                  onClick={() => navigate(item.hash)}
+                  className={`rounded-lg px-4 py-1.5 text-sm transition ${active ? "bg-blue-500/20 text-blue-300" : "text-white/60 hover:text-white hover:bg-white/5"}`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
           </nav>
-        </header>
+          <button className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/70 hover:text-white">
+            <Icon path="m21 21-4.3-4.3M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14" size={16} />
+          </button>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 md:px-8 md:py-8">
         {route.page === "home" && <FundsPage params={route.params} />}
         {route.page === "fund" && <FundDetailPage id={route.id} />}
         {route.page === "vcs" && <VcsPage params={route.params} />}
         {route.page === "vc" && <VcDetailPage id={route.id} />}
-      </div>
+        {route.page === "match" && <MatchPage />}
+      </main>
     </div>
   );
 }
 
 function FundsPage({ params }: { params: URLSearchParams }) {
   const [funds, setFunds] = useState<Fund[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState(params.get("q") ?? "");
-  const [view, setView] = useState(params.get("view") ?? "table");
-  const [sortBy, setSortBy] = useState(params.get("sortBy") ?? "fund_name");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">((params.get("sortDir") as "asc" | "desc") ?? "asc");
+  const [view, setView] = useState<ViewType>((params.get("view") as ViewType) ?? "table");
+  const [sortBy, setSortBy] = useState<SortKey>((params.get("sortBy") as SortKey) ?? "fund_name");
+  const [sortDir, setSortDir] = useState<SortDir>((params.get("sortDir") as SortDir) ?? "asc");
   const [filters, setFilters] = useState<Record<string, string[]>>({
     stage: params.getAll("stage"),
     sector: params.getAll("sector"),
@@ -108,15 +148,18 @@ function FundsPage({ params }: { params: URLSearchParams }) {
   const debouncedQuery = debounce(query, 300);
 
   useEffect(() => {
-    const sortMap: Record<string, string> = {
+    const sortMap: Record<SortKey, string> = {
       fund_name: `fund_name_${sortDir}`,
+      company_name: `company_${sortDir}`,
       amount_억: `amount_${sortDir}`,
       registered_date: `registered_${sortDir}`,
     };
+    setLoading(true);
     fetch(`/api/funds?limit=200&sort=${sortMap[sortBy] || "amount_desc"}`)
       .then((res) => res.json())
       .then((data) => setFunds(data.funds || []))
-      .catch(() => setFunds([]));
+      .catch(() => setFunds([]))
+      .finally(() => setLoading(false));
   }, [sortBy, sortDir]);
 
   useEffect(() => {
@@ -168,77 +211,120 @@ function FundsPage({ params }: { params: URLSearchParams }) {
     setFilters((prev) => ({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter((x) => x !== v) : [...prev[k], v] }));
   };
 
+  const resetFilters = () => setFilters({ stage: [], sector: [], region: [], size: [] });
+  const activeFilters = Object.entries(filters).flatMap(([k, vals]) => vals.map((v) => ({ key: k, value: v })));
+
   return (
     <section className="space-y-4">
-      <div className="glass-card p-4 space-y-4">
+      <div className="glass-card p-4 md:p-5 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="펀드명 / VC명 / 키워드 검색" className="flex-1 min-w-64 px-4 py-2 rounded-xl bg-white/5 border border-white/10" />
-          <span className="px-3 py-1 rounded-full bg-blue-500/20 text-blue-200 text-sm">{filtered.length} funds</span>
+          <div className="relative min-w-72 flex-1">
+            <Icon path="m21 21-4.3-4.3M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={16} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="펀드명, VC명, 키워드 검색..."
+              className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white outline-none ring-blue-500/40 placeholder:text-white/40 focus:ring"
+            />
+          </div>
+          <span className="rounded-full bg-blue-500/20 px-3 py-1 text-sm text-blue-300">{filtered.length} funds</span>
         </div>
-        <div className="flex flex-wrap gap-2 items-center">
+
+        <div className="flex flex-wrap items-center gap-2">
           {(["stage", "sector", "region", "size"] as const).map((k) => (
-            <details key={k} className="glass-card px-3 py-2">
-              <summary className="cursor-pointer text-sm capitalize">{k}</summary>
-              <div className="mt-2 flex flex-wrap gap-2 max-w-xl">
-                {options[k].map((o) => (
-                  <button key={o} onClick={() => toggle(k, o)} className={`${chipClass} ${filters[k].includes(o) ? "bg-emerald-500/30 border-emerald-300/60" : ""}`}>{o}</button>
-                ))}
+            <details key={k} className="group relative">
+              <summary className="list-none cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm capitalize text-white/70 transition hover:bg-white/10 hover:text-white">
+                {k}
+              </summary>
+              <div className="absolute left-0 top-11 z-20 w-72 rounded-2xl border border-white/10 bg-[#111117]/95 p-3 backdrop-blur-xl">
+                <div className="flex flex-wrap gap-2">
+                  {options[k].map((o) => (
+                    <button
+                      key={o}
+                      onClick={() => toggle(k, o)}
+                      className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                        filters[k].includes(o)
+                          ? "border-blue-500/30 bg-blue-500/20 text-blue-300"
+                          : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      {o}
+                    </button>
+                  ))}
+                </div>
               </div>
             </details>
           ))}
-          <button className="ml-auto text-sm text-red-300" onClick={() => setFilters({ stage: [], sector: [], region: [], size: [] })}>전체 초기화</button>
+          <button className="ml-auto text-sm text-white/40 transition hover:text-white" onClick={resetFilters}>전체 초기화</button>
         </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          {Object.entries(filters).flatMap(([k, vals]) => vals.map((v) => (
-            <button key={`${k}-${v}`} onClick={() => toggle(k, v)} className="px-2.5 py-1 rounded-full bg-white/10 text-xs">{k}:{v} ✕</button>
-          )))}
-        </div>
-        <div className="flex gap-2">
-          <button className={`${chipClass} ${view === "table" ? "bg-blue-500/30" : ""}`} onClick={() => setView("table")}>Table</button>
-          <button className={`${chipClass} ${view === "card" ? "bg-blue-500/30" : ""}`} onClick={() => setView("card")}>Card</button>
+
+        {activeFilters.length > 0 && (
+          <div className="flex flex-wrap gap-2 border-t border-white/10 pt-3">
+            {activeFilters.map((item) => (
+              <button
+                key={`${item.key}-${item.value}`}
+                onClick={() => toggle(item.key, item.value)}
+                className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/20 px-3 py-1 text-xs text-blue-300"
+              >
+                {item.key}: {item.value}
+                <Icon path="M18 6 6 18M6 6l12 12" size={12} />
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-t border-white/10 pt-3">
+          <span className="text-xs uppercase tracking-widest text-white/40">View</span>
+          <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1">
+            <IconToggle active={view === "table"} onClick={() => setView("table")}><Icon path="M3 10h18M3 3h18v18H3zM3 17h18M12 3v18" size={15} /></IconToggle>
+            <IconToggle active={view === "card"} onClick={() => setView("card")}><Icon path="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" size={15} /></IconToggle>
+          </div>
         </div>
       </div>
 
-      {view === "table" ? (
-        <div className="glass-card overflow-x-auto">
+      {loading ? (
+        view === "table" ? <TableSkeleton /> : <CardSkeleton />
+      ) : filtered.length === 0 ? (
+        <EmptyState onReset={resetFilters} />
+      ) : view === "table" ? (
+        <div className="glass-card overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="text-left text-slate-300">
-              <tr className="border-b border-white/10">
-                {[
-                  ["fund_name", "펀드명"],
-                  ["company_name", "운용사"],
-                  ["amount_억", "규모"],
-                  ["registered_date", "설립일"],
-                ].map(([k, label]) => (
-                  <th key={k} className="p-3">
-                    <button className="flex items-center gap-1" onClick={() => {
-                      if (k === sortBy) setSortDir(sortDir === "asc" ? "desc" : "asc");
-                      setSortBy(k);
-                    }}>{label}{sortBy === k ? (sortDir === "asc" ? "↑" : "↓") : ""}</button>
-                  </th>
-                ))}
+            <thead>
+              <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wider text-white/40">
+                <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="fund_name" label="펀드명" />
+                <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="company_name" label="운용사" />
+                <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="amount_억" label="규모" />
+                <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="registered_date" label="설립일" />
               </tr>
             </thead>
             <tbody>
               {filtered.map((f) => (
-                <tr key={f.asct_id} className="border-b border-white/5 hover:bg-white/5 cursor-pointer" onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}>
-                  <td className="p-3">{highlight(f.fund_name, debouncedQuery)}</td>
-                  <td className="p-3">{highlight(f.company_name, debouncedQuery)}</td>
-                  <td className="p-3">{formatAmount(f.amount_억)}</td>
-                  <td className="p-3">{f.registered_date?.slice(0, 10) || "-"}</td>
+                <tr key={f.asct_id} className="cursor-pointer border-b border-white/5 transition hover:bg-white/[0.03]" onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}>
+                  <td className="p-4 font-medium text-white">{highlight(f.fund_name, debouncedQuery)}</td>
+                  <td className="p-4 text-white/60">{highlight(f.company_name, debouncedQuery)}</td>
+                  <td className="p-4 font-mono text-blue-300">{formatAmount(f.amount_억)}</td>
+                  <td className="p-4 text-white/60">{f.registered_date?.slice(0, 10) || "-"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filtered.map((f) => (
-            <article key={f.asct_id} className="glass-card p-4 space-y-2 cursor-pointer" onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}>
-              <h3 className="font-semibold">{highlight(f.fund_name, debouncedQuery)}</h3>
-              <p className="text-sm text-slate-300">{f.company_name}</p>
-              <p className="text-blue-300">{formatAmount(f.amount_억)}</p>
-              <div className="flex flex-wrap gap-1.5">{(f.sector_tags || []).slice(0, 5).map((tag) => <span key={tag} className="text-xs px-2 py-1 rounded-full bg-white/10">{tag}</span>)}</div>
+            <article
+              key={f.asct_id}
+              className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 transition hover:border-blue-500/20 hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer"
+              onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}
+            >
+              <h3 className="font-semibold text-white">{highlight(f.fund_name, debouncedQuery)}</h3>
+              <p className="mt-1 text-sm text-white/60">{f.company_name}</p>
+              <p className="mt-4 font-mono text-sm text-blue-300">{formatAmount(f.amount_억)}</p>
+              <div className="mt-4 flex flex-wrap gap-1.5">
+                {(f.sector_tags || []).slice(0, 5).map((tag) => (
+                  <span key={tag} className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300">{tag}</span>
+                ))}
+              </div>
             </article>
           ))}
         </div>
@@ -249,26 +335,41 @@ function FundsPage({ params }: { params: URLSearchParams }) {
 
 function FundDetailPage({ id }: { id: string }) {
   const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    fetch(`/api/fund-detail?id=${encodeURIComponent(id)}`).then((r) => r.json()).then(setData).catch(() => setData(null));
+    setLoading(true);
+    fetch(`/api/fund-detail?id=${encodeURIComponent(id)}`)
+      .then((r) => r.json())
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
   }, [id]);
-  if (!data) return <div className="glass-card p-6">Loading...</div>;
+
+  if (loading) return <div className="glass-card p-6">Loading...</div>;
+  if (!data) return <EmptyState onReset={() => navigate("/")} label="상세 정보를 찾을 수 없습니다" buttonLabel="목록으로" />;
+
   const fund = data.fund || data;
   return (
-    <section className="glass-card p-6 space-y-4">
-      <h2 className="text-2xl font-semibold">{fund.fund_name}</h2>
-      <div className="grid md:grid-cols-2 gap-3 text-sm">
-        <Info label="운용사" value={fund.company_name} />
-        <Info label="규모" value={formatAmount(fund.amount_억)} />
-        <Info label="설립일" value={fund.registered_date?.slice(0, 10)} />
-        <Info label="만기일" value={fund.maturity_date?.slice(0, 10)} />
-        <Info label="투자 단계" value={(fund.all_tags || []).join(", ")} />
-        <Info label="섹터" value={(fund.sector_tags || []).join(", ")} />
+    <section className="space-y-4">
+      <button onClick={() => navigate("/")} className="inline-flex items-center gap-2 text-sm text-white/60 hover:text-white">
+        <Icon path="m12 19-7-7 7-7M19 12H5" size={14} /> 뒤로 가기
+      </button>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="glass-card p-6 lg:col-span-2 space-y-4">
+          <h2 className="text-2xl font-semibold">{fund.fund_name}</h2>
+          <div className="grid gap-3 md:grid-cols-2 text-sm">
+            <Info label="운용사" value={fund.company_name} />
+            <Info label="규모" value={formatAmount(fund.amount_억)} mono />
+            <Info label="설립일" value={fund.registered_date?.slice(0, 10)} />
+            <Info label="만기일" value={fund.maturity_date?.slice(0, 10)} />
+          </div>
+        </div>
+        <div className="space-y-4">
+          <MetaCard title="투자 단계" items={fund.all_tags || []} tone="blue" />
+          <MetaCard title="섹터" items={fund.sector_tags || []} tone="emerald" />
+        </div>
       </div>
-      <h3 className="text-lg">운용 펀드</h3>
-      <ul className="space-y-2">
-        {(data.relatedFunds || []).map((f: any) => <li key={f.asct_id} className="text-sm text-slate-300">{f.fund_name} · {formatAmount(f.amount_억)}</li>)}
-      </ul>
     </section>
   );
 }
@@ -281,27 +382,31 @@ function VcsPage({ params }: { params: URLSearchParams }) {
   useEffect(() => {
     fetch(`/api/vcs?limit=200&search=${encodeURIComponent(debounced)}`)
       .then((r) => r.json())
-      .then((d) => setList((d.data?.vcs || d.vcs || []).map((v: any) => ({
-        name: v.name || v.company_name,
-        total_aum: v.total_aum || 0,
-        total_funds: v.total_funds || v.fund_count || 0,
-        active_funds: v.active_funds || v.active_count || 0,
-        sectors: v.sectors || [],
-      }))))
+      .then((d) =>
+        setList(
+          (d.data?.vcs || d.vcs || []).map((v: any) => ({
+            name: v.name || v.company_name,
+            total_aum: v.total_aum || 0,
+            total_funds: v.total_funds || v.fund_count || 0,
+            active_funds: v.active_funds || v.active_count || 0,
+            sectors: v.sectors || [],
+          }))
+        )
+      )
       .catch(() => setList([]));
   }, [debounced]);
 
   return (
     <section className="space-y-4">
       <div className="glass-card p-4 flex gap-3 items-center">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="VC 검색" className="flex-1 px-4 py-2 rounded-xl bg-white/5 border border-white/10" />
-        <span className="text-sm text-emerald-300">{list.length} VCs</span>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="VC 검색" className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm" />
+        <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-sm text-emerald-300">{list.length} VCs</span>
       </div>
-      <div className="grid md:grid-cols-2 gap-3">
+      <div className="grid gap-3 md:grid-cols-2">
         {list.map((vc) => (
-          <article key={vc.name} className="glass-card p-4 cursor-pointer" onClick={() => navigate(`/vc/${encodeURIComponent(vc.name)}`)}>
+          <article key={vc.name} className="glass-card p-4 cursor-pointer transition hover:border-blue-500/20" onClick={() => navigate(`/vc/${encodeURIComponent(vc.name)}`)}>
             <h3 className="font-semibold">{vc.name}</h3>
-            <p className="text-sm text-slate-300">AUM {formatAmount(vc.total_aum)} · 펀드 {vc.total_funds}개</p>
+            <p className="text-sm text-white/60">AUM {formatAmount(vc.total_aum)} · 펀드 {vc.total_funds}개</p>
           </article>
         ))}
       </div>
@@ -312,28 +417,128 @@ function VcsPage({ params }: { params: URLSearchParams }) {
 function VcDetailPage({ id }: { id: string }) {
   const [data, setData] = useState<any>(null);
   useEffect(() => {
-    fetch(`/api/vc-detail?name=${encodeURIComponent(id)}&format=stats`).then((r) => r.json()).then((d) => setData(d.data || d)).catch(() => setData(null));
+    fetch(`/api/vc-detail?name=${encodeURIComponent(id)}&format=stats`)
+      .then((r) => r.json())
+      .then((d) => setData(d.data || d))
+      .catch(() => setData(null));
   }, [id]);
   if (!data) return <div className="glass-card p-6">Loading...</div>;
   return (
     <section className="space-y-4">
       <div className="glass-card p-6">
         <h2 className="text-2xl font-semibold">{data.name}</h2>
-        <p className="text-slate-300 text-sm">총 펀드 {data.total_funds} · 운용규모 {formatAmount(data.total_aum)}</p>
+        <p className="text-sm text-white/60">총 펀드 {data.total_funds} · 운용규모 {formatAmount(data.total_aum)}</p>
       </div>
       <div className="glass-card p-4">
         <h3 className="mb-2">운용 펀드</h3>
-        <ul className="space-y-2 text-sm">{(data.funds || []).map((f: any) => <li key={f.id}>{f.fund_name} · {formatAmount(f.total_amount)}</li>)}</ul>
+        <ul className="space-y-2 text-sm text-white/70">{(data.funds || []).map((f: any) => <li key={f.id}>{f.fund_name} · {formatAmount(f.total_amount)}</li>)}</ul>
       </div>
     </section>
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function MatchPage() {
   return (
-    <div className="glass-card p-3">
-      <div className="text-xs text-slate-400">{label}</div>
-      <div>{value || "-"}</div>
+    <section className="glass-card p-8 text-center">
+      <h2 className="text-xl font-semibold">Match</h2>
+      <p className="mt-2 text-sm text-white/60">VC-펀드 매칭 뷰가 곧 제공됩니다.</p>
+    </section>
+  );
+}
+
+function SortableHeader({
+  current,
+  dir,
+  setSortBy,
+  setSortDir,
+  column,
+  label,
+}: {
+  current: SortKey;
+  dir: SortDir;
+  setSortBy: (value: SortKey) => void;
+  setSortDir: (value: SortDir) => void;
+  column: SortKey;
+  label: string;
+}) {
+  const active = current === column;
+  return (
+    <th className="p-4">
+      <button
+        className="inline-flex items-center gap-1 text-left"
+        onClick={() => {
+          if (active) setSortDir(dir === "asc" ? "desc" : "asc");
+          setSortBy(column);
+        }}
+      >
+        {label}
+        {active ? dir === "asc" ? <Icon path="m18 15-6-6-6 6" size={12} /> : <Icon path="m6 9 6 6 6-6" size={12} /> : null}
+      </button>
+    </th>
+  );
+}
+
+function IconToggle({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button onClick={onClick} className={`rounded-full p-2 transition ${active ? "bg-blue-500/25 text-blue-300" : "text-white/50 hover:text-white hover:bg-white/10"}`}>
+      {children}
+    </button>
+  );
+}
+
+function EmptyState({ onReset, label = "검색 결과가 없습니다", buttonLabel = "필터 초기화" }: { onReset: () => void; label?: string; buttonLabel?: string }) {
+  return (
+    <div className="glass-card p-10 text-center">
+      <Icon path="M12 3C7 3 3 4.8 3 7v10c0 2.2 4 4 9 4s9-1.8 9-4V7c0-2.2-4-4-9-4Zm0 0c5 0 9 1.8 9 4s-4 4-9 4-9-1.8-9-4 4-4 9-4Zm-9 9c0 2.2 4 4 9 4s9-1.8 9-4" className="mx-auto text-white/30" size={20} />
+      <p className="mt-3 font-medium">{label}</p>
+      <button className="mt-4 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 hover:text-white" onClick={onReset}>
+        {buttonLabel}
+      </button>
+    </div>
+  );
+}
+
+function TableSkeleton() {
+  return (
+    <div className="glass-card p-4 animate-pulse space-y-3">
+      {Array.from({ length: 8 }).map((_, idx) => (
+        <div key={idx} className="h-10 rounded-lg bg-white/5" />
+      ))}
+    </div>
+  );
+}
+
+function CardSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 animate-pulse">
+      {Array.from({ length: 6 }).map((_, idx) => (
+        <div key={idx} className="glass-card p-6 space-y-3">
+          <div className="h-5 rounded bg-white/10" />
+          <div className="h-4 w-2/3 rounded bg-white/5" />
+          <div className="h-4 w-1/3 rounded bg-blue-500/20" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MetaCard({ title, items, tone }: { title: string; items: string[]; tone: "blue" | "emerald" }) {
+  const toneClass = tone === "blue" ? "border-blue-500/30 bg-blue-500/15 text-blue-300" : "border-emerald-500/30 bg-emerald-500/15 text-emerald-300";
+  return (
+    <div className="glass-card p-4">
+      <h3 className="mb-3 text-sm text-white/60">{title}</h3>
+      <div className="flex flex-wrap gap-2">
+        {items.length ? items.map((item) => <span key={item} className={`rounded-full border px-2.5 py-1 text-xs ${toneClass}`}>{item}</span>) : <span className="text-sm text-white/40">-</span>}
+      </div>
+    </div>
+  );
+}
+
+function Info({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+      <div className="text-xs text-white/40">{label}</div>
+      <div className={mono ? "font-mono text-blue-300" : "text-white/90"}>{value || "-"}</div>
     </div>
   );
 }
