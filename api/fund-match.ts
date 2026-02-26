@@ -2,8 +2,8 @@
 // api/fund-match.ts
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { matchFunds, extractDealSignals } from "../services/funds/fund-matcher.js";
-import type { DealSignals } from "../services/funds/fund-matcher.js";
+import { matchFunds, extractDealSignals } from "../services/fund-matcher";
+import type { DealSignals } from "../services/fund-matcher";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {

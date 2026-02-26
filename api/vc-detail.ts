@@ -3,8 +3,8 @@
 // api/vc-detail.ts
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getVCDetail } from "../services/funds/fund-explorer.js";
-import { getVCDetailWithStats } from "../services/funds/vc-explorer.js";
+import { getVCDetail } from "../services/fund-explorer";
+import { getVCDetailWithStats } from "../services/vc-explorer";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {

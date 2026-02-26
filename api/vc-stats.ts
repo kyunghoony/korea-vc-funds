@@ -2,7 +2,7 @@
 // api/vc-stats.ts
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getVCDashboardStats } from "../services/funds/vc-explorer.js";
+import { getVCDashboardStats } from "../services/vc-explorer";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
