@@ -4,20 +4,20 @@
 
 :root {
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  color: #e5e7eb;
-  background-color: #0a0a0f;
+  color: #ffffff;
+  background-color: #09090b;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background: #0a0a0f;
+  background: #09090b;
 }
 
 .glass-card {
-  @apply bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.08)] rounded-2xl;
+  @apply rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur;
 }
 
 mark {
-  @apply bg-blue-500/30 text-blue-100 rounded px-0.5;
+  @apply rounded px-0.5 text-blue-100 bg-blue-500/30;
 }
