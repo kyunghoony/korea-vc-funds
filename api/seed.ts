@@ -40,12 +40,13 @@ const fundsData = JSON.parse(readFileSync(fundsDataPath, "utf-8")) as FundSeedRo
 
 const REQUIRED_COLUMNS: Array<{ name: string; type: string }> = [
   { name: "asct_id", type: "TEXT" },
-  { name: "company", type: "TEXT" },
+  { name: "company_name", type: "TEXT" },
   { name: "fund_name", type: "TEXT" },
-  { name: "registered", type: "DATE" },
-  { name: "maturity", type: "DATE" },
+  { name: "registered_date", type: "DATE" },
+  { name: "maturity_date", type: "DATE" },
   { name: "settlement_month", type: "TEXT" },
   { name: "fund_manager", type: "TEXT" },
+  { name: "fund_manager_name", type: "TEXT" },
   { name: "support_type", type: "TEXT" },
   { name: "account_type", type: "TEXT" },
   { name: "purpose_type", type: "TEXT" },
@@ -53,7 +54,7 @@ const REQUIRED_COLUMNS: Array<{ name: string; type: string }> = [
   { name: "hurdle_rate", type: "NUMERIC(5,2)" },
   { name: "total_amount", type: "BIGINT" },
   { name: "amount_억", type: "INTEGER" },
-  { name: "tags", type: "TEXT[]" },
+  { name: "all_tags", type: "TEXT[] DEFAULT '{}'" },
   { name: "sector_tags", type: "TEXT[]" },
   { name: "is_govt_matched", type: "BOOLEAN DEFAULT FALSE" },
   { name: "is_active", type: "BOOLEAN DEFAULT FALSE" },
@@ -97,14 +98,19 @@ async function ensureSeedColumns(sql: NeonSQL) {
 }
 
 function normalizeRow(row: FundSeedRow) {
+  const asctId = row.asct_id ?? "";
+  const companyName = row.company ?? "";
+  const fundName = row.fund_name ?? "";
+
   return {
-    asct_id: row.asct_id,
-    company: row.company,
-    fund_name: row.fund_name,
-    registered: row.registered || null,
-    maturity: row.maturity || null,
+    asct_id: asctId,
+    company_name: companyName,
+    fund_name: fundName,
+    registered_date: row.registered || null,
+    maturity_date: row.maturity || null,
     settlement_month: row.settlement_month || null,
     fund_manager: row.fund_manager || null,
+    fund_manager_name: row.fund_manager ? row.fund_manager.split("(")[0]?.trim() || null : null,
     support_type: row.support_type || null,
     account_type: row.account_type || null,
     purpose_type: row.purpose_type || null,
@@ -112,7 +118,7 @@ function normalizeRow(row: FundSeedRow) {
     hurdle_rate: row.hurdle_rate === "" || row.hurdle_rate == null ? null : Number(row.hurdle_rate),
     total_amount: row.total_amount ?? null,
     amount_억: row.amount_억 ?? null,
-    tags: Array.isArray(row.tags) ? row.tags : [],
+    all_tags: Array.isArray(row.tags) ? row.tags : [],
     sector_tags: Array.isArray(row.sector_tags) ? row.sector_tags : [],
     is_govt_matched: Boolean(row.is_govt_matched),
     is_active: Boolean(row.is_active),
@@ -126,12 +132,13 @@ async function insertBatch(sql: NeonSQL, rows: FundSeedRow[]) {
 
   const columns = [
     "asct_id",
-    "company",
+    "company_name",
     "fund_name",
-    "registered",
-    "maturity",
+    "registered_date",
+    "maturity_date",
     "settlement_month",
     "fund_manager",
+    "fund_manager_name",
     "support_type",
     "account_type",
     "purpose_type",
@@ -139,7 +146,7 @@ async function insertBatch(sql: NeonSQL, rows: FundSeedRow[]) {
     "hurdle_rate",
     "total_amount",
     "amount_억",
-    "tags",
+    "all_tags",
     "sector_tags",
     "is_govt_matched",
     "is_active",
