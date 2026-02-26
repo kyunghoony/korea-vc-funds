@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 
 type Fund = {
@@ -133,6 +133,7 @@ function App() {
 }
 
 function FundsPage({ params }: { params: URLSearchParams }) {
+  const ITEMS_PER_PAGE = 50;
   const [funds, setFunds] = useState<Fund[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState(params.get("q") ?? "");
@@ -145,6 +146,9 @@ function FundsPage({ params }: { params: URLSearchParams }) {
     region: params.getAll("region"),
     size: params.getAll("size"),
   });
+  const [openFilter, setOpenFilter] = useState<"stage" | "sector" | "region" | "size" | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const filterRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = debounce(query, 300);
 
   useEffect(() => {
@@ -154,13 +158,46 @@ function FundsPage({ params }: { params: URLSearchParams }) {
       amount_억: `amount_${sortDir}`,
       registered_date: `registered_${sortDir}`,
     };
+
+    const fetchAllFunds = async () => {
+      const chunkSize = 50;
+      let page = 1;
+      let hasMore = true;
+      const allFunds: Fund[] = [];
+
+      while (hasMore) {
+        const response = await fetch(`/api/funds?page=${page}&limit=${chunkSize}&sort=${sortMap[sortBy] || "amount_desc"}`);
+        const data = await response.json();
+        const chunk = data.funds || [];
+        allFunds.push(...chunk);
+        hasMore = chunk.length === chunkSize;
+        page += 1;
+      }
+
+      return allFunds;
+    };
+
     setLoading(true);
-    fetch(`/api/funds?limit=200&sort=${sortMap[sortBy] || "amount_desc"}`)
-      .then((res) => res.json())
-      .then((data) => setFunds(data.funds || []))
+    fetchAllFunds()
+      .then((allFunds) => setFunds(allFunds))
       .catch(() => setFunds([]))
       .finally(() => setLoading(false));
   }, [sortBy, sortDir]);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
+        setOpenFilter(null);
+      }
+    };
+
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedQuery, filters, view]);
 
   useEffect(() => {
     const sp = new URLSearchParams();
@@ -211,8 +248,21 @@ function FundsPage({ params }: { params: URLSearchParams }) {
     setFilters((prev) => ({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter((x) => x !== v) : [...prev[k], v] }));
   };
 
-  const resetFilters = () => setFilters({ stage: [], sector: [], region: [], size: [] });
+  const resetFilters = () => {
+    setFilters({ stage: [], sector: [], region: [], size: [] });
+    setQuery("");
+    setCurrentPage(1);
+  };
   const activeFilters = Object.entries(filters).flatMap(([k, vals]) => vals.map((v) => ({ key: k, value: v })));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const paginatedFunds = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
+  const filterLabel: Record<"stage" | "sector" | "region" | "size", string> = {
+    stage: "투자단계",
+    sector: "섹터",
+    region: "지역",
+    size: "규모",
+  };
 
   return (
     <section className="space-y-4">
@@ -227,35 +277,43 @@ function FundsPage({ params }: { params: URLSearchParams }) {
               className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white outline-none ring-blue-500/40 placeholder:text-white/40 focus:ring"
             />
           </div>
-          <span className="rounded-full bg-blue-500/20 px-3 py-1 text-sm text-blue-300">{filtered.length} funds</span>
+          <span className="rounded-full bg-blue-500/20 px-3 py-1 text-sm text-blue-300">{filtered.length.toLocaleString()}개 펀드</span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div ref={filterRef} className="relative z-10 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
           {(["stage", "sector", "region", "size"] as const).map((k) => (
-            <details key={k} className="group relative">
-              <summary className="list-none cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm capitalize text-white/70 transition hover:bg-white/10 hover:text-white">
-                {k}
-              </summary>
-              <div className="absolute left-0 top-11 z-20 w-72 rounded-2xl border border-white/10 bg-[#111117]/95 p-3 backdrop-blur-xl">
-                <div className="flex flex-wrap gap-2">
-                  {options[k].map((o) => (
-                    <button
-                      key={o}
-                      onClick={() => toggle(k, o)}
-                      className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
-                        filters[k].includes(o)
-                          ? "border-blue-500/30 bg-blue-500/20 text-blue-300"
-                          : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
-                      }`}
-                    >
-                      {o}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </details>
+            <button
+              key={k}
+              onClick={() => setOpenFilter((prev) => (prev === k ? null : k))}
+              className="cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
+            >
+              {filterLabel[k]}
+            </button>
           ))}
           <button className="ml-auto text-sm text-white/40 transition hover:text-white" onClick={resetFilters}>전체 초기화</button>
+        </div>
+
+          {openFilter && (
+            <div className="w-full rounded-2xl border border-white/10 bg-[#111117]/95 p-3 backdrop-blur-xl">
+              <div className="mb-2 text-xs text-white/40">{filterLabel[openFilter]} 선택</div>
+              <div className="flex flex-wrap gap-2">
+                {options[openFilter].map((o) => (
+                  <button
+                    key={o}
+                    onClick={() => toggle(openFilter, o)}
+                    className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                      filters[openFilter].includes(o)
+                        ? "border-blue-500/30 bg-blue-500/20 text-blue-300"
+                        : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    {o}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {activeFilters.length > 0 && (
@@ -285,7 +343,7 @@ function FundsPage({ params }: { params: URLSearchParams }) {
       {loading ? (
         view === "table" ? <TableSkeleton /> : <CardSkeleton />
       ) : filtered.length === 0 ? (
-        <EmptyState onReset={resetFilters} />
+        <EmptyState onReset={resetFilters} buttonLabel="초기화" />
       ) : view === "table" ? (
         <div className="glass-card overflow-hidden">
           <table className="w-full text-sm">
@@ -293,17 +351,20 @@ function FundsPage({ params }: { params: URLSearchParams }) {
               <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wider text-white/40">
                 <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="fund_name" label="펀드명" />
                 <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="company_name" label="운용사" />
-                <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="amount_억" label="규모" />
-                <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="registered_date" label="설립일" />
+                <SortableHeader className="hidden md:table-cell" current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="amount_억" label="규모(억)" />
+                <SortableHeader className="hidden md:table-cell" current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="registered_date" label="설립일" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((f) => (
+              {paginatedFunds.map((f) => (
                 <tr key={f.asct_id} className="cursor-pointer border-b border-white/5 transition hover:bg-white/[0.03]" onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}>
-                  <td className="p-4 font-medium text-white">{highlight(f.fund_name, debouncedQuery)}</td>
-                  <td className="p-4 text-white/60">{highlight(f.company_name, debouncedQuery)}</td>
-                  <td className="p-4 font-mono text-blue-300">{formatAmount(f.amount_억)}</td>
-                  <td className="p-4 text-white/60">{f.registered_date?.slice(0, 10) || "-"}</td>
+                  <td className="p-4 font-medium text-white">
+                    {highlight(f.fund_name, debouncedQuery)}
+                    <div className="mt-1 text-xs text-white/60 md:hidden">{highlight(f.company_name, debouncedQuery)}</div>
+                  </td>
+                  <td className="hidden p-4 text-white/60 md:table-cell">{highlight(f.company_name, debouncedQuery)}</td>
+                  <td className="hidden p-4 font-mono text-blue-300 md:table-cell">{f.amount_억?.toLocaleString() || "-"}</td>
+                  <td className="hidden p-4 text-white/60 md:table-cell">{f.registered_date?.slice(0, 10) || "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -311,7 +372,7 @@ function FundsPage({ params }: { params: URLSearchParams }) {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((f) => (
+          {paginatedFunds.map((f) => (
             <article
               key={f.asct_id}
               className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 transition hover:border-blue-500/20 hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer"
@@ -327,6 +388,38 @@ function FundsPage({ params }: { params: URLSearchParams }) {
               </div>
             </article>
           ))}
+        </div>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+            disabled={currentPage === 1}
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/70 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            이전
+          </button>
+          {Array.from({ length: totalPages }).slice(Math.max(0, currentPage - 3), Math.max(0, currentPage - 3) + 5).map((_, idx) => {
+            const pageNum = Math.max(1, currentPage - 2) + idx;
+            if (pageNum > totalPages) return null;
+            return (
+              <button
+                key={pageNum}
+                onClick={() => setCurrentPage(pageNum)}
+                className={`rounded-lg px-3 py-1.5 text-sm ${pageNum === currentPage ? "bg-blue-500/25 text-blue-300" : "border border-white/10 bg-white/5 text-white/70"}`}
+              >
+                {pageNum}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+            disabled={currentPage === totalPages}
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/70 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            다음
+          </button>
         </div>
       )}
     </section>
@@ -447,6 +540,7 @@ function MatchPage() {
 }
 
 function SortableHeader({
+  className = "",
   current,
   dir,
   setSortBy,
@@ -454,6 +548,7 @@ function SortableHeader({
   column,
   label,
 }: {
+  className?: string;
   current: SortKey;
   dir: SortDir;
   setSortBy: (value: SortKey) => void;
@@ -463,7 +558,7 @@ function SortableHeader({
 }) {
   const active = current === column;
   return (
-    <th className="p-4">
+    <th className={`p-4 ${className}`}>
       <button
         className="inline-flex items-center gap-1 text-left"
         onClick={() => {
