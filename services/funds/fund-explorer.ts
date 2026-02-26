@@ -441,5 +441,5 @@ export async function getSectorList() {
     ORDER BY count DESC
   `;
 
-  return result;
+  return result.map((r) => r.sector as string);
 }
