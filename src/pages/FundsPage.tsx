@@ -54,7 +54,7 @@ export function FundsPage({ params }: { params: URLSearchParams }) {
 
     fetch("/api/funds?type=sectors")
       .then((r) => r.json())
-      .then((data) => setSectors((data.sectors || []).slice(0, MAX_FUND_SECTORS)))
+      .then((data) => setSectors((data.sectors || []).map((s: { sector: string } | string) => typeof s === "string" ? s : s.sector).slice(0, MAX_FUND_SECTORS)))
       .catch((e) => {
         console.error("Failed to fetch sectors:", e);
         setSectors([]);
