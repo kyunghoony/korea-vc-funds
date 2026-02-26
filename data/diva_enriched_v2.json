@@ -1,0 +1,155 @@
+[
+  {
+    "asct_id": "AS20220036",
+    "company": "NBH캐피탈 / 코스넷기술투자",
+    "fund_name": "엔비에이치-코스넷 세미콘 넥스트 벤처투자조합",
+    "registered": "2022-01-11",
+    "maturity": "2027-01-10",
+    "settlement_month": "12월",
+    "fund_manager": "나경한(2022-01-11)",
+    "support_type": "해당없음",
+    "account_type": "-",
+    "purpose_type": "해당없음",
+    "sector_type": "일반/중소/벤처일반",
+    "hurdle_rate": "7",
+    "total_amount": 2200000000,
+    "amount_억": 22,
+    "tags": [
+      "반도체",
+      "성장투자",
+      "중기",
+      "활성"
+    ],
+    "sector_tags": [
+      "반도체",
+      "성장투자"
+    ],
+    "is_govt_matched": false,
+    "is_active": true,
+    "lifecycle": "중기",
+    "has_sector": true
+  },
+  {
+    "asct_id": "AS20230619",
+    "company": "500글로벌매니지먼트코리아",
+    "fund_name": "500코리아III투자조합",
+    "registered": "2023-07-18",
+    "maturity": "2033-07-17",
+    "settlement_month": "12월",
+    "fund_manager": "김경민(2023-07-18)",
+    "support_type": "창업초기",
+    "account_type": "-",
+    "purpose_type": "해당없음",
+    "sector_type": "일반/중소/벤처일반",
+    "hurdle_rate": "0",
+    "total_amount": 25253000000,
+    "amount_억": 253,
+    "tags": [
+      "중기",
+      "초기투자",
+      "해외",
+      "활성_3년+"
+    ],
+    "sector_tags": [
+      "초기투자",
+      "해외"
+    ],
+    "is_govt_matched": false,
+    "is_active": true,
+    "lifecycle": "중기",
+    "has_sector": true
+  },
+  {
+    "asct_id": "AS20150108",
+    "company": "Brightstar Partners Ltd., UK / 키움인베스트먼트",
+    "fund_name": "한-영 이노베이션펀드 제1호",
+    "registered": "2015-10-08",
+    "maturity": "2026-10-07",
+    "settlement_month": "12월",
+    "fund_manager": "강민수(2022-06-21)",
+    "support_type": "해당없음",
+    "account_type": "중진계정",
+    "purpose_type": "해당없음",
+    "sector_type": "일반/바이오",
+    "hurdle_rate": "7",
+    "total_amount": 41000000000,
+    "amount_억": 410,
+    "tags": [
+      "만기임박",
+      "정부매칭",
+      "중기부",
+      "해외",
+      "후기/회수기"
+    ],
+    "sector_tags": [
+      "해외"
+    ],
+    "is_govt_matched": true,
+    "is_active": false,
+    "lifecycle": "후기/회수기",
+    "has_sector": true
+  },
+  {
+    "asct_id": "AS20250022",
+    "company": "KDB인프라자산운용 / 인라이트벤처스",
+    "fund_name": "스타트업 코리아 IBK 초격차 KIAMCO인라이트 벤처투자조합",
+    "registered": "2025-01-09",
+    "maturity": "2032-01-08",
+    "settlement_month": "12월",
+    "fund_manager": "이승재(2025-01-09)",
+    "support_type": "해당없음",
+    "account_type": "중진계정",
+    "purpose_type": "해당없음",
+    "sector_type": "일반/중소/벤처일반",
+    "hurdle_rate": "8",
+    "total_amount": 20500000000,
+    "amount_억": 205,
+    "tags": [
+      "딥테크",
+      "적극투자기",
+      "정부매칭",
+      "중기부",
+      "초기투자",
+      "활성_3년+"
+    ],
+    "sector_tags": [
+      "딥테크",
+      "초기투자"
+    ],
+    "is_govt_matched": true,
+    "is_active": true,
+    "lifecycle": "적극투자기",
+    "has_sector": true
+  },
+  {
+    "asct_id": "AS20230932",
+    "company": "KDB인프라자산운용 / 인라이트벤처스",
+    "fund_name": "아이비케이 디캠프 IP기술사업화 KIAMCO인라이트 펀드",
+    "registered": "2023-10-12",
+    "maturity": "2030-10-11",
+    "settlement_month": "12월",
+    "fund_manager": "이승재(2023-10-12)",
+    "support_type": "해당없음",
+    "account_type": "특허계정",
+    "purpose_type": "해당없음",
+    "sector_type": "일반/중소/벤처일반",
+    "hurdle_rate": "3",
+    "total_amount": 20000000000,
+    "amount_억": 200,
+    "tags": [
+      "정부매칭",
+      "중기",
+      "콘텐츠/엔터",
+      "특허/IP",
+      "활성_3년+"
+    ],
+    "sector_tags": [
+      "콘텐츠/엔터",
+      "특허/IP"
+    ],
+    "is_govt_matched": true,
+    "is_active": true,
+    "lifecycle": "중기",
+    "has_sector": true
+  }
+]
