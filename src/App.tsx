@@ -1,57 +1,53 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
-
-
-type Fund = {
-  asct_id: string;
-  fund_name: string;
-  company_name: string;
-  amount_억?: number;
-  registered_date?: string;
-  maturity_date?: string;
-  lifecycle?: string;
-  sector_tags?: string[];
-  all_tags?: string[];
-  [key: string]: unknown;
-};
-
-type Vc = {
-  name: string;
-  total_aum: number;
-  total_funds: number;
-  active_funds: number;
-  sectors: string[];
-};
-
-type VcDashboardStats = {
-  total_vcs: number;
-  active_vcs: number;
-  total_aum: number;
-  avg_aum_per_vc: number;
-};
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Route =
-  | { page: "home"; params: URLSearchParams }
+  | { page: "funds"; params: URLSearchParams }
   | { page: "fund"; id: string }
   | { page: "vcs"; params: URLSearchParams }
   | { page: "vc"; id: string };
 
 type ViewType = "table" | "card";
 type SortDir = "asc" | "desc";
-
 type SortKey = "fund_name" | "company_name" | "amount_억" | "registered_date";
+type FilterKey = "stage" | "sector" | "size";
 
+type Fund = {
+  asct_id: string;
+  fund_name: string;
+  company_name: string;
+  amount_억: number;
+  registered_date?: string;
+  lifecycle?: string;
+  sector_tags?: string[];
+};
 
-function Icon({ path, className = "", size = 16 }: { path: string; className?: string; size?: number }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} width={size} height={size} aria-hidden>
-      <path d={path} />
-    </svg>
-  );
-}
+type FundStats = {
+  total_funds: number;
+  active_funds: number;
+  active_aum: number;
+  total_vcs: number;
+};
 
+type Vc = {
+  name: string;
+  total_funds: number;
+  active_funds: number;
+  total_aum: number;
+  sectors: string[];
+};
+
+type VcStats = {
+  total_vcs: number;
+  active_vcs: number;
+  total_aum: number;
+  avg_aum_per_vc: number;
+};
+
+const STAGE_OPTIONS = ["적극투자기", "중기", "후기/회수기"];
+const SIZE_OPTIONS = ["~100억", "100~500억", "500~1000억", "1000억~"];
 
 const navItems = [
-  { label: "Funds", hash: "/", page: "home" },
+  { label: "Funds", hash: "/", page: "funds" },
   { label: "VCs", hash: "/vcs", page: "vcs" },
 ] as const;
 
@@ -63,14 +59,14 @@ function parseRoute(): Route {
   if (parts[0] === "fund" && parts[1]) return { page: "fund", id: decodeURIComponent(parts[1]) };
   if (parts[0] === "vcs") return { page: "vcs", params: new URLSearchParams(query) };
   if (parts[0] === "vc" && parts[1]) return { page: "vc", id: decodeURIComponent(parts[1]) };
-  return { page: "home", params: new URLSearchParams(query) };
+  return { page: "funds", params: new URLSearchParams(query) };
 }
 
 function navigate(path: string) {
   window.location.hash = path;
 }
 
-function debounce<T>(value: T, ms: number) {
+function useDebounce<T>(value: T, ms: number) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(value), ms);
@@ -79,59 +75,67 @@ function debounce<T>(value: T, ms: number) {
   return debounced;
 }
 
-function formatAmount(v?: number) {
-  if (!v && v !== 0) return "-";
-  return `${v.toLocaleString()}억`;
+const formatAmount = (value?: number) => (value || value === 0 ? `${value.toLocaleString()}억` : "-");
+const formatDate = (value?: string) => (value ? new Date(value).toLocaleDateString("ko-KR") : "-");
+
+function amountTone(value?: number) {
+  if (!value) return "num-muted";
+  if (value >= 3000) return "num-blue";
+  if (value >= 1000) return "num-white";
+  return "num-muted";
 }
 
-function formatJo(v?: number) {
-  if (!v && v !== 0) return "-";
-  return `${(v / 10000).toLocaleString("ko-KR", { maximumFractionDigits: 1 })}조`;
+function lifecycleTone(lifecycle?: string) {
+  if (lifecycle === "적극투자기") return "badge-emerald";
+  if (lifecycle === "중기") return "badge-blue";
+  return "badge-amber";
 }
 
-function highlight(text: string, q: string) {
-  if (!q.trim()) return text;
-  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${escaped})`, "ig");
-  return text.split(regex).map((part, i) => (part.toLowerCase() === q.toLowerCase() ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>));
+function sizeToRange(size: string) {
+  if (size === "~100억") return { min: undefined, max: 100 };
+  if (size === "100~500억") return { min: 100, max: 500 };
+  if (size === "500~1000억") return { min: 500, max: 1000 };
+  if (size === "1000억~") return { min: 1000, max: undefined };
+  return { min: undefined, max: undefined };
 }
 
 function App() {
   const [route, setRoute] = useState<Route>(parseRoute());
 
   useEffect(() => {
-    const onHash = () => setRoute(parseRoute());
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    const onHashChange = () => setRoute(parseRoute());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white">
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#09090b]/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 md:px-8">
-          <button onClick={() => navigate("/")} className="text-lg font-semibold tracking-tight">Korea VC Funds</button>
-          <nav className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-1">
+    <div className="app-shell">
+      <header className="sticky-nav">
+        <div className="container nav-inner">
+          <button className="brand" onClick={() => navigate("/")}> 
+            <span className="brand-dot" />
+            <span>Korea VC Funds</span>
+          </button>
+
+          <nav className="pill-tabs">
             {navItems.map((item) => {
               const active = route.page === item.page;
               return (
                 <button
                   key={item.label}
+                  className={`pill-tab ${active ? "active" : ""}`}
                   onClick={() => navigate(item.hash)}
-                  className={`rounded-lg px-4 py-1.5 text-sm transition ${active ? "bg-blue-500/20 text-blue-300" : "text-white/60 hover:text-white hover:bg-white/5"}`}
                 >
                   {item.label}
                 </button>
               );
             })}
           </nav>
-          <button className="rounded-xl border border-white/10 bg-white/5 p-2 text-white/70 hover:text-white">
-            <Icon path="m21 21-4.3-4.3M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14" size={16} />
-          </button>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 md:px-8 md:py-8">
-        {route.page === "home" && <FundsPage params={route.params} />}
+      <main className="container main-space">
+        {route.page === "funds" && <FundsPage params={route.params} />}
         {route.page === "fund" && <FundDetailPage id={route.id} />}
         {route.page === "vcs" && <VcsPage params={route.params} />}
         {route.page === "vc" && <VcDetailPage id={route.id} />}
@@ -142,24 +146,47 @@ function App() {
 
 function FundsPage({ params }: { params: URLSearchParams }) {
   const [funds, setFunds] = useState<Fund[]>([]);
-  const [pagination, setPagination] = useState({ total: 0, page: 1, pages: 1, limit: 50 });
-  const [loading, setLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
+  const [loadingTable, setLoadingTable] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [stats, setStats] = useState<FundStats | null>(null);
+  const [pagination, setPagination] = useState({ total: 0, page: Number(params.get("page") || 1), pages: 1, limit: 50 });
   const [query, setQuery] = useState(params.get("q") ?? "");
-  const [view, setView] = useState<ViewType>((params.get("view") as ViewType) ?? "table");
-  const [sortBy, setSortBy] = useState<SortKey>((params.get("sortBy") as SortKey) ?? "fund_name");
-  const [sortDir, setSortDir] = useState<SortDir>((params.get("sortDir") as SortDir) ?? "asc");
-  const [filters, setFilters] = useState<Record<string, string[]>>({
+  const [view, setView] = useState<ViewType>((params.get("view") as ViewType) || "table");
+  const [sortBy, setSortBy] = useState<SortKey>((params.get("sortBy") as SortKey) || "amount_억");
+  const [sortDir, setSortDir] = useState<SortDir>((params.get("sortDir") as SortDir) || "desc");
+  const [openFilter, setOpenFilter] = useState<FilterKey | null>(null);
+  const [sectors, setSectors] = useState<string[]>([]);
+  const [filters, setFilters] = useState<Record<FilterKey, string[]>>({
     stage: params.getAll("stage"),
     sector: params.getAll("sector"),
     size: params.getAll("size"),
   });
-  const [openFilter, setOpenFilter] = useState<"stage" | "sector" | "size" | null>(null);
-  const [currentPage, setCurrentPage] = useState(Number(params.get("page") || 1));
-  const [stats, setStats] = useState<any>(null);
-  const [statsLoading, setStatsLoading] = useState(true);
-  const filterRef = useRef<HTMLDivElement>(null);
-  const debouncedQuery = debounce(query, 300);
+
+  const filterWrapRef = useRef<HTMLDivElement>(null);
+  const debouncedQ = useDebounce(query, 300);
+
+  useEffect(() => {
+    fetch("/api/fund-stats")
+      .then((r) => r.json())
+      .then((data) => setStats(data.overview || data))
+      .catch(() => setStats(null))
+      .finally(() => setStatsLoading(false));
+
+    fetch("/api/funds?type=sectors")
+      .then((r) => r.json())
+      .then((data) => setSectors((data.sectors || []).slice(0, 40)))
+      .catch(() => setSectors([]));
+  }, []);
+
+  useEffect(() => {
+    const onClickOutside = (event: MouseEvent) => {
+      if (filterWrapRef.current && !filterWrapRef.current.contains(event.target as Node)) {
+        setOpenFilter(null);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
 
   useEffect(() => {
     const sortMap: Record<SortKey, string> = {
@@ -169,69 +196,32 @@ function FundsPage({ params }: { params: URLSearchParams }) {
       registered_date: `registered_${sortDir}`,
     };
 
-    const sizeToRange = (size: string) => {
-      if (size === "~300억") return { min: undefined, max: 300 };
-      if (size === "300~1000억") return { min: 300, max: 1000 };
-      if (size === "1000억~") return { min: 1000, max: undefined };
-      return { min: undefined, max: undefined };
-    };
-
     const selectedSize = filters.size[0];
-    const sizeRange = selectedSize ? sizeToRange(selectedSize) : { min: undefined, max: undefined };
+    const range = selectedSize ? sizeToRange(selectedSize) : { min: undefined, max: undefined };
 
     const sp = new URLSearchParams();
-    sp.set("page", String(currentPage));
     sp.set("limit", "50");
-    sp.set("sort", sortMap[sortBy] || "amount_desc");
-    if (debouncedQuery.trim()) sp.set("search", debouncedQuery.trim());
+    sp.set("page", String(pagination.page));
+    sp.set("sort", sortMap[sortBy]);
+    if (debouncedQ.trim()) sp.set("search", debouncedQ.trim());
+    if (filters.stage[0]) sp.set("lifecycle", filters.stage[0]);
     if (filters.sector[0]) sp.set("sector", filters.sector[0]);
-    if (filters.stage[0]) sp.set("stage", filters.stage[0]);
-    if (sizeRange.min !== undefined) sp.set("min_amount", String(sizeRange.min));
-    if (sizeRange.max !== undefined) sp.set("max_amount", String(sizeRange.max));
+    if (range.min !== undefined) sp.set("min_amount", String(range.min));
+    if (range.max !== undefined) sp.set("max_amount", String(range.max));
 
-    const initialLoading = funds.length === 0;
-    if (initialLoading) setLoading(true);
-    setIsFetching(true);
-
+    setLoadingTable(true);
     fetch(`/api/funds?${sp.toString()}`)
       .then((r) => r.json())
       .then((data) => {
         setFunds(data.funds || []);
-        setPagination(data.pagination || { total: 0, page: currentPage, pages: 1, limit: 50 });
+        setPagination(data.pagination || { total: 0, page: 1, pages: 1, limit: 50 });
       })
       .catch(() => {
         setFunds([]);
         setPagination({ total: 0, page: 1, pages: 1, limit: 50 });
       })
-      .finally(() => {
-        setLoading(false);
-        setIsFetching(false);
-      });
-  }, [sortBy, sortDir, debouncedQuery, filters, currentPage]);
-
-  useEffect(() => {
-    setStatsLoading(true);
-    fetch('/api/fund-stats')
-      .then((r) => r.json())
-      .then((d) => setStats(d.overview || d))
-      .catch(() => setStats(null))
-      .finally(() => setStatsLoading(false));
-  }, []);
-
-  useEffect(() => {
-    const onClickOutside = (event: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(event.target as Node)) {
-        setOpenFilter(null);
-      }
-    };
-
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [debouncedQuery, filters, view]);
+      .finally(() => setLoadingTable(false));
+  }, [debouncedQ, filters, sortBy, sortDir, pagination.page]);
 
   useEffect(() => {
     const sp = new URLSearchParams();
@@ -239,259 +229,295 @@ function FundsPage({ params }: { params: URLSearchParams }) {
     if (view !== "table") sp.set("view", view);
     sp.set("sortBy", sortBy);
     sp.set("sortDir", sortDir);
-    sp.set("page", String(currentPage));
-    Object.entries(filters).forEach(([k, vals]) => vals.forEach((v) => sp.append(k, v)));
+    sp.set("page", String(pagination.page));
+    (Object.keys(filters) as FilterKey[]).forEach((key) => filters[key].forEach((value) => sp.append(key, value)));
     navigate(`/?${sp.toString()}`);
-  }, [query, view, sortBy, sortDir, filters, currentPage]);
+  }, [query, view, sortBy, sortDir, pagination.page, filters]);
 
-  const options = {
-    stage: ["초기투자", "성장투자", "세컨더리", "창업", "스케일업"],
-    sector: ["AI/SW", "바이오", "핀테크", "딥테크", "콘텐츠", "헬스케어"],
-    size: ["~300억", "300~1000억", "1000억~"],
-  };
+  const cards = useMemo(
+    () => [
+      { label: "Total", value: stats?.total_funds?.toLocaleString() || "-" },
+      { label: "Active", value: stats?.active_funds?.toLocaleString() || "-" },
+      { label: "총운용규모", value: formatAmount(stats?.active_aum) },
+      { label: "VC사", value: stats?.total_vcs?.toLocaleString() || "-" },
+    ],
+    [stats],
+  );
 
-  const toggle = (k: string, v: string) => {
-    setFilters((prev) => ({ ...prev, [k]: prev[k].includes(v) ? [] : [v] }));
+  const toggleFilter = (key: FilterKey, value: string) => {
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    setFilters((prev) => {
+      const exists = prev[key].includes(value);
+      const next = exists ? prev[key].filter((v) => v !== value) : [...prev[key], value];
+      return { ...prev, [key]: next };
+    });
   };
 
   const resetFilters = () => {
-    setFilters({ stage: [], sector: [], size: [] });
     setQuery("");
-    setCurrentPage(1);
-  };
-
-  const activeFilters = Object.entries(filters).flatMap(([k, vals]) => vals.map((v) => ({ key: k, value: v })));
-  const filterLabel: Record<"stage" | "sector" | "size", string> = {
-    stage: "투자단계",
-    sector: "섹터",
-    size: "규모",
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    setFilters({ stage: [], sector: [], size: [] });
   };
 
   return (
-    <section className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="총 펀드" value={stats?.total_funds?.toLocaleString() || "-"} loading={statsLoading} />
-        <StatCard label="활성 펀드" value={stats?.active_funds?.toLocaleString() || "-"} loading={statsLoading} />
-        <StatCard label="태깅된 펀드" value={stats?.tagged_funds?.toLocaleString() || "-"} loading={statsLoading} />
-        <StatCard label="정부매칭 펀드" value={stats?.govt_funds?.toLocaleString() || "-"} loading={statsLoading} />
-      </div>
+    <section className="page-space">
+      <StatGrid cards={cards} loading={statsLoading} />
 
-      <div className="glass-card p-4 md:p-5 space-y-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative min-w-72 flex-1">
-            <Icon path="m21 21-4.3-4.3M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/40" size={16} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="펀드명, VC명, 키워드 검색..."
-              className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white outline-none ring-blue-500/40 placeholder:text-white/40 focus:ring"
-            />
-          </div>
-          <span className="rounded-full bg-blue-500/20 px-3 py-1 text-sm text-blue-300">{loading ? "로딩중..." : `${pagination.total.toLocaleString()}개 펀드`}</span>
-        </div>
+      <section className="glass panel-space">
+        <div className="toolbar">
+          <input
+            className="search-input"
+            value={query}
+            onChange={(e) => {
+              setPagination((prev) => ({ ...prev, page: 1 }));
+              setQuery(e.target.value);
+            }}
+            placeholder="펀드명 · 운용사 검색"
+          />
 
-        <div ref={filterRef} className="relative z-10 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {(["stage", "sector", "size"] as const).map((k) => (
-              <button key={k} onClick={() => setOpenFilter((prev) => (prev === k ? null : k))} className="cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white">{filterLabel[k]}</button>
-            ))}
-            <button className="ml-auto text-sm text-white/40 transition hover:text-white" onClick={resetFilters}>전체 초기화</button>
-          </div>
-
-          {openFilter && (
-            <div className="w-full rounded-2xl border border-white/10 bg-[#111117]/95 p-3 backdrop-blur-xl">
-              <div className="mb-2 text-xs text-white/40">{filterLabel[openFilter]} 선택</div>
-              <div className="flex flex-wrap gap-2">
-                {options[openFilter].map((o) => (
-                  <button key={o} onClick={() => toggle(openFilter, o)} className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${filters[openFilter].includes(o) ? "border-blue-500/30 bg-blue-500/20 text-blue-300" : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"}`}>{o}</button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-white/10 pt-3">
-          <span className="text-xs uppercase tracking-widest text-white/40">View</span>
-          <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1">
-            <IconToggle active={view === "table"} onClick={() => setView("table")}><Icon path="M3 10h18M3 3h18v18H3zM3 17h18M12 3v18" size={15} /></IconToggle>
-            <IconToggle active={view === "card"} onClick={() => setView("card")}><Icon path="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z" size={15} /></IconToggle>
+          <div className="view-toggle">
+            <button className={`mini-pill ${view === "table" ? "active" : ""}`} onClick={() => setView("table")}>Table</button>
+            <button className={`mini-pill ${view === "card" ? "active" : ""}`} onClick={() => setView("card")}>Card</button>
           </div>
         </div>
-      </div>
 
-      {(loading && view === "table") ? <TableSkeleton /> : (loading && view === "card") ? <CardSkeleton /> : funds.length === 0 ? (
-        <EmptyState onReset={resetFilters} buttonLabel="초기화" />
+        <div className="filters" ref={filterWrapRef}>
+          <FilterDropdown
+            title="투자단계"
+            isOpen={openFilter === "stage"}
+            onOpen={() => setOpenFilter(openFilter === "stage" ? null : "stage")}
+            options={STAGE_OPTIONS}
+            selected={filters.stage}
+            onToggle={(value) => toggleFilter("stage", value)}
+          />
+          <FilterDropdown
+            title="섹터"
+            isOpen={openFilter === "sector"}
+            onOpen={() => setOpenFilter(openFilter === "sector" ? null : "sector")}
+            options={sectors}
+            selected={filters.sector}
+            onToggle={(value) => toggleFilter("sector", value)}
+          />
+          <FilterDropdown
+            title="규모"
+            isOpen={openFilter === "size"}
+            onOpen={() => setOpenFilter(openFilter === "size" ? null : "size")}
+            options={SIZE_OPTIONS}
+            selected={filters.size}
+            onToggle={(value) => toggleFilter("size", value)}
+          />
+          <button className="reset-btn" onClick={resetFilters}>초기화</button>
+        </div>
+      </section>
+
+      {loadingTable ? (
+        view === "table" ? <TableSkeleton /> : <CardSkeleton />
+      ) : funds.length === 0 ? (
+        <EmptyState label="조건에 맞는 펀드가 없습니다." onReset={resetFilters} />
       ) : view === "table" ? (
-        <div className="glass-card overflow-hidden">
-          {isFetching && <div className="px-4 py-2 text-xs text-white/40">업데이트 중...</div>}
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wider text-white/40">
-                <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="fund_name" label="펀드명" />
-                <SortableHeader current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="company_name" label="운용사" />
-                <SortableHeader className="hidden md:table-cell" current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="amount_억" label="규모(억)" />
-                <SortableHeader className="hidden md:table-cell" current={sortBy} dir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} column="registered_date" label="설립일" />
-              </tr>
-            </thead>
-            <tbody>
-              {funds.map((f) => (
-                <tr key={f.asct_id} className="cursor-pointer border-b border-white/5 transition hover:bg-white/[0.03]" onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}>
-                  <td className="p-4 font-medium text-white">{highlight(f.fund_name, debouncedQuery)}<div className="mt-1 text-xs text-white/60 md:hidden">{highlight(f.company_name, debouncedQuery)}</div></td>
-                  <td className="hidden p-4 text-white/60 md:table-cell">{highlight(f.company_name, debouncedQuery)}</td>
-                  <td className="hidden p-4 font-mono text-blue-300 md:table-cell">{f.amount_억?.toLocaleString() || "-"}</td>
-                  <td className="hidden p-4 text-white/60 md:table-cell">{f.registered_date?.slice(0, 10) || "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <FundsTable funds={funds} sortBy={sortBy} sortDir={sortDir} setSortBy={setSortBy} setSortDir={setSortDir} />
       ) : (
-        <>
-          {isFetching && <div className="text-xs text-white/40">업데이트 중...</div>}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {funds.map((f) => (
-              <article key={f.asct_id} className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 transition hover:border-blue-500/20 hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer" onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}>
-                <h3 className="font-semibold text-white">{highlight(f.fund_name, debouncedQuery)}</h3>
-                <p className="mt-1 text-sm text-white/60">{f.company_name}</p>
-                <p className="mt-4 font-mono text-sm text-blue-300">{formatAmount(f.amount_억)}</p>
-                <div className="mt-4 flex flex-wrap gap-1.5">{(f.sector_tags || []).slice(0, 5).map((tag) => (<span key={tag} className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300">{tag}</span>))}</div>
-              </article>
+        <FundCards funds={funds} />
+      )}
+
+      <Pagination
+        page={pagination.page}
+        pages={pagination.pages}
+        total={pagination.total}
+        onPage={(page) => setPagination((prev) => ({ ...prev, page }))}
+      />
+    </section>
+  );
+}
+
+function FundsTable({
+  funds,
+  sortBy,
+  sortDir,
+  setSortBy,
+  setSortDir,
+}: {
+  funds: Fund[];
+  sortBy: SortKey;
+  sortDir: SortDir;
+  setSortBy: (key: SortKey) => void;
+  setSortDir: (value: SortDir) => void;
+}) {
+  const setSort = (key: SortKey) => {
+    if (sortBy === key) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else {
+      setSortBy(key);
+      setSortDir("desc");
+    }
+  };
+
+  return (
+    <div className="glass overflow-wrap">
+      <table className="fund-table">
+        <thead>
+          <tr>
+            <HeaderCell active={sortBy === "fund_name"} label="펀드명" onClick={() => setSort("fund_name")} />
+            <HeaderCell active={sortBy === "company_name"} label="운용사" onClick={() => setSort("company_name")} />
+            <HeaderCell active={sortBy === "amount_억"} label="규모" onClick={() => setSort("amount_억")} />
+            <th>섹터</th>
+            <HeaderCell active={sortBy === "registered_date"} label="설립일" onClick={() => setSort("registered_date")} />
+            <th>상태</th>
+          </tr>
+        </thead>
+        <tbody>
+          {funds.map((fund) => (
+            <tr key={fund.asct_id} onClick={() => navigate(`/fund/${encodeURIComponent(fund.asct_id)}`)}>
+              <td className="fund-title">{fund.fund_name}</td>
+              <td>{fund.company_name}</td>
+              <td className={`number ${amountTone(fund.amount_억)}`}>{formatAmount(fund.amount_억)}</td>
+              <td>
+                <div className="tag-wrap">
+                  {(fund.sector_tags || []).slice(0, 2).map((tag) => (
+                    <span key={tag} className="tag">{tag}</span>
+                  ))}
+                </div>
+              </td>
+              <td>{formatDate(fund.registered_date)}</td>
+              <td>
+                <span className={`badge ${lifecycleTone(fund.lifecycle)}`}>{fund.lifecycle || "-"}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FundCards({ funds }: { funds: Fund[] }) {
+  return (
+    <div className="fund-grid">
+      {funds.map((fund) => (
+        <article key={fund.asct_id} className="glass fund-card" onClick={() => navigate(`/fund/${encodeURIComponent(fund.asct_id)}`)}>
+          <h3>{fund.fund_name}</h3>
+          <p className="muted">{fund.company_name}</p>
+          <p className={`number ${amountTone(fund.amount_억)}`}>{formatAmount(fund.amount_억)}</p>
+          <div className="tag-wrap">
+            {(fund.sector_tags || []).slice(0, 3).map((tag) => (
+              <span key={tag} className="tag">{tag}</span>
             ))}
           </div>
-        </>
-      )}
-
-      {!loading && funds.length > 0 && (
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <button onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))} disabled={pagination.page === 1} className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/70 disabled:cursor-not-allowed disabled:opacity-40">이전</button>
-          {Array.from({ length: pagination.pages }).slice(Math.max(0, pagination.page - 3), Math.max(0, pagination.page - 3) + 5).map((_, idx) => {
-            const pageNum = Math.max(1, pagination.page - 2) + idx;
-            if (pageNum > pagination.pages) return null;
-            return <button key={pageNum} onClick={() => setCurrentPage(pageNum)} className={`rounded-lg px-3 py-1.5 text-sm ${pageNum === pagination.page ? "bg-blue-500/25 text-blue-300" : "border border-white/10 bg-white/5 text-white/70"}`}>{pageNum}</button>;
-          })}
-          <button onClick={() => setCurrentPage((prev) => Math.min(pagination.pages, prev + 1))} disabled={pagination.page === pagination.pages} className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/70 disabled:cursor-not-allowed disabled:opacity-40">다음</button>
-        </div>
-      )}
-
-      {activeFilters.length > 0 && (
-        <div className="flex flex-wrap gap-2 border-t border-white/10 pt-3">
-          {activeFilters.map((item) => (
-            <button key={`${item.key}-${item.value}`} onClick={() => toggle(item.key, item.value)} className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/20 px-3 py-1 text-xs text-blue-300">{item.key}: {item.value}<Icon path="M18 6 6 18M6 6l12 12" size={12} /></button>
-          ))}
-        </div>
-      )}
-    </section>
+          <div className="card-footer">
+            <span>{formatDate(fund.registered_date)}</span>
+            <span className={`badge ${lifecycleTone(fund.lifecycle)}`}>{fund.lifecycle || "-"}</span>
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }
 
 function FundDetailPage({ id }: { id: string }) {
   const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
   useEffect(() => {
-    setLoading(true);
     fetch(`/api/fund-detail?id=${encodeURIComponent(id)}`)
       .then((r) => r.json())
-      .then(setData)
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
+      .then((result) => setData(result))
+      .catch(() => setData(null));
   }, [id]);
 
-  if (loading) return <div className="glass-card p-6">Loading...</div>;
-  if (!data) return <EmptyState onReset={() => navigate("/")} label="상세 정보를 찾을 수 없습니다" buttonLabel="목록으로" />;
+  if (!data?.fund) return <TableSkeleton />;
+  const fund = data.fund;
 
-  const fund = data.fund || data;
   return (
-    <section className="space-y-4">
-      <button onClick={() => navigate("/")} className="inline-flex items-center gap-2 text-sm text-white/60 hover:text-white">
-        <Icon path="m12 19-7-7 7-7M19 12H5" size={14} /> 뒤로 가기
-      </button>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="glass-card p-6 lg:col-span-2 space-y-4">
-          <h2 className="text-2xl font-semibold">{fund.fund_name}</h2>
-          <div className="grid gap-3 md:grid-cols-2 text-sm">
-            <Info label="운용사" value={fund.company_name} />
-            <Info label="규모" value={formatAmount(fund.amount_억)} mono />
-            <Info label="설립일" value={fund.registered_date?.slice(0, 10)} />
-            <Info label="만기일" value={fund.maturity_date?.slice(0, 10)} />
-          </div>
-        </div>
-        <div className="space-y-4">
-          <MetaCard title="투자 단계" items={fund.all_tags || []} tone="blue" />
-          <MetaCard title="섹터" items={fund.sector_tags || []} tone="emerald" />
-        </div>
+    <section className="page-space">
+      <button className="reset-btn" onClick={() => navigate("/")}>← 뒤로가기</button>
+      <article className="glass detail-main">
+        <h1>{fund.fund_name}</h1>
+        <p className="muted">{fund.company_name}</p>
+        <p className={`number ${amountTone(fund.amount_억)}`}>{formatAmount(fund.amount_억)}</p>
+        <p className="muted">설립 {formatDate(fund.registered_date)} · 만기 {formatDate(fund.maturity_date)}</p>
+      </article>
+      <div className="detail-grid">
+        <article className="glass meta-card"><h3>섹터</h3><div className="tag-wrap">{(fund.sector_tags || []).map((tag: string) => <span key={tag} className="tag">{tag}</span>)}</div></article>
+        <article className="glass meta-card"><h3>태그</h3><div className="tag-wrap">{(fund.all_tags || []).slice(0, 12).map((tag: string) => <span key={tag} className="tag">{tag}</span>)}</div></article>
       </div>
     </section>
   );
 }
 
 function VcsPage({ params }: { params: URLSearchParams }) {
-  const [q, setQ] = useState(params.get("q") ?? "");
+  const [stats, setStats] = useState<VcStats | null>(null);
   const [list, setList] = useState<Vc[]>([]);
-  const [totalVCs, setTotalVCs] = useState(0);
-  const [stats, setStats] = useState<VcDashboardStats | null>(null);
-  const debounced = debounce(q, 300);
+  const [q, setQ] = useState(params.get("q") || "");
+  const [pagination, setPagination] = useState({ page: Number(params.get("page") || 1), pages: 1, total: 0 });
+  const debouncedQ = useDebounce(q, 300);
 
   useEffect(() => {
-    fetch(`/api/vcs?limit=1000&search=${encodeURIComponent(debounced)}`)
+    fetch("/api/vc-stats")
       .then((r) => r.json())
-      .then((d) => {
-        const rows = (d.data?.vcs || d.vcs || []).map((v: any) => ({
-          name: v.name || v.company_name,
-          total_aum: v.total_aum || 0,
-          total_funds: v.total_funds || v.fund_count || 0,
-          active_funds: v.active_funds || v.active_count || 0,
-          sectors: v.sectors || [],
-        }));
-        setList(rows);
-        setTotalVCs(Number(d.data?.total || rows.length));
-      })
-      .catch(() => {
-        setList([]);
-        setTotalVCs(0);
-      });
-  }, [debounced]);
-
-  useEffect(() => {
-    fetch('/api/vc-stats')
-      .then((r) => r.json())
-      .then((d) => setStats(d.data || d))
+      .then((data) => setStats(data.data || data))
       .catch(() => setStats(null));
   }, []);
 
+  useEffect(() => {
+    const sp = new URLSearchParams({ limit: "50", page: String(pagination.page), sort: "total_aum", order: "desc" });
+    if (debouncedQ) sp.set("search", debouncedQ);
+
+    fetch(`/api/vcs?${sp.toString()}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const payload = data.data || data;
+        setList(payload.vcs || []);
+        setPagination((prev) => ({ ...prev, total: payload.total || 0, pages: payload.pages || 1 }));
+      })
+      .catch(() => setList([]));
+  }, [debouncedQ, pagination.page]);
+
+  useEffect(() => {
+    const sp = new URLSearchParams();
+    if (q) sp.set("q", q);
+    sp.set("page", String(pagination.page));
+    navigate(`/vcs?${sp.toString()}`);
+  }, [q, pagination.page]);
+
   return (
-    <section className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <article className="glass-card p-4">
-          <p className="text-sm text-white/60">총 VC사</p>
-          <p className="mt-1 text-2xl font-semibold">{stats?.total_vcs?.toLocaleString() ?? "-"}</p>
-        </article>
-        <article className="glass-card p-4">
-          <p className="text-sm text-white/60">활성 VC사</p>
-          <p className="mt-1 text-2xl font-semibold">{stats?.active_vcs?.toLocaleString() ?? "-"}</p>
-        </article>
-        <article className="glass-card p-4">
-          <p className="text-sm text-white/60">총 운용총액</p>
-          <p className="mt-1 text-2xl font-semibold">{formatJo(stats?.total_aum)}</p>
-        </article>
-        <article className="glass-card p-4">
-          <p className="text-sm text-white/60">평균 AUM / VC</p>
-          <p className="mt-1 text-2xl font-semibold">{formatAmount(stats?.avg_aum_per_vc)}</p>
-        </article>
+    <section className="page-space">
+      <StatGrid
+        loading={!stats}
+        cards={[
+          { label: "총VC사", value: stats?.total_vcs?.toLocaleString() || "-" },
+          { label: "활성", value: stats?.active_vcs?.toLocaleString() || "-" },
+          { label: "총AUM", value: formatAmount(stats?.total_aum) },
+          { label: "평균AUM", value: formatAmount(stats?.avg_aum_per_vc) },
+        ]}
+      />
+
+      <section className="glass panel-space">
+        <input
+          className="search-input"
+          value={q}
+          onChange={(e) => {
+            setPagination((prev) => ({ ...prev, page: 1 }));
+            setQ(e.target.value);
+          }}
+          placeholder="VC 이름 검색"
+        />
+      </section>
+
+      <div className="glass overflow-wrap">
+        <table className="fund-table">
+          <thead><tr><th>VC명</th><th>펀드수</th><th>총AUM</th><th>활성펀드</th><th>주요섹터</th></tr></thead>
+          <tbody>
+            {list.map((vc) => (
+              <tr key={vc.name} onClick={() => navigate(`/vc/${encodeURIComponent(vc.name)}`)}>
+                <td className="fund-title">{vc.name}</td>
+                <td className="number num-white">{vc.total_funds.toLocaleString()}</td>
+                <td className={`number ${amountTone(vc.total_aum)}`}>{formatAmount(vc.total_aum)}</td>
+                <td className="number num-white">{vc.active_funds.toLocaleString()}</td>
+                <td><div className="tag-wrap">{vc.sectors.slice(0, 3).map((s) => <span key={s} className="tag">{s}</span>)}</div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      <div className="glass-card p-4 flex gap-3 items-center">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="VC 검색" className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm" />
-        <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-sm text-emerald-300">{totalVCs.toLocaleString()} VCs</span>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {list.map((vc) => (
-          <article key={vc.name} className="glass-card p-4 cursor-pointer transition hover:border-blue-500/20" onClick={() => navigate(`/vc/${encodeURIComponent(vc.name)}`)}>
-            <h3 className="font-semibold">{vc.name}</h3>
-            <p className="text-sm text-white/60">AUM {formatAmount(vc.total_aum)} · 펀드 {vc.total_funds}개</p>
-          </article>
-        ))}
-      </div>
+      <Pagination page={pagination.page} pages={pagination.pages} total={pagination.total} onPage={(page) => setPagination((prev) => ({ ...prev, page }))} />
     </section>
   );
 }
@@ -501,135 +527,130 @@ function VcDetailPage({ id }: { id: string }) {
   useEffect(() => {
     fetch(`/api/vc-detail?name=${encodeURIComponent(id)}&format=stats`)
       .then((r) => r.json())
-      .then((d) => setData(d.data || d))
+      .then((result) => setData(result.data || result))
       .catch(() => setData(null));
   }, [id]);
-  if (!data) return <div className="glass-card p-6">Loading...</div>;
+
+  if (!data) return <TableSkeleton />;
+
   return (
-    <section className="space-y-4">
-      <div className="glass-card p-6">
-        <h2 className="text-2xl font-semibold">{data.name}</h2>
-        <p className="text-sm text-white/60">총 펀드 {data.total_funds} · 운용규모 {formatAmount(data.total_aum)}</p>
-      </div>
-      <div className="glass-card p-4">
-        <h3 className="mb-2">운용 펀드</h3>
-        <ul className="space-y-2 text-sm text-white/70">{(data.funds || []).map((f: any) => <li key={f.id}>{f.fund_name} · {formatAmount(f.total_amount)}</li>)}</ul>
+    <section className="page-space">
+      <button className="reset-btn" onClick={() => navigate("/vcs")}>← 뒤로가기</button>
+      <article className="glass detail-main">
+        <h1>{data.name}</h1>
+        <p className="muted">펀드 {data.total_funds}개 · 활성 {data.active_funds}개</p>
+        <p className={`number ${amountTone(data.total_aum)}`}>{formatAmount(data.total_aum)}</p>
+      </article>
+
+      <div className="glass overflow-wrap">
+        <table className="fund-table">
+          <thead><tr><th>펀드명</th><th>규모</th><th>결성일</th><th>라이프사이클</th></tr></thead>
+          <tbody>
+            {(data.funds || []).map((fund: any) => (
+              <tr key={fund.id} onClick={() => navigate(`/fund/${encodeURIComponent(fund.id)}`)}>
+                <td className="fund-title">{fund.fund_name}</td>
+                <td className={`number ${amountTone(fund.total_amount)}`}>{formatAmount(fund.total_amount)}</td>
+                <td>{formatDate(fund.formation_date)}</td>
+                <td><span className={`badge ${lifecycleTone(fund.lifecycle)}`}>{fund.lifecycle || "-"}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   );
 }
 
-function SortableHeader({
-  className = "",
-  current,
-  dir,
-  setSortBy,
-  setSortDir,
-  column,
-  label,
+function FilterDropdown({
+  title,
+  isOpen,
+  onOpen,
+  options,
+  selected,
+  onToggle,
 }: {
-  className?: string;
-  current: SortKey;
-  dir: SortDir;
-  setSortBy: (value: SortKey) => void;
-  setSortDir: (value: SortDir) => void;
-  column: SortKey;
-  label: string;
+  title: string;
+  isOpen: boolean;
+  onOpen: () => void;
+  options: string[];
+  selected: string[];
+  onToggle: (value: string) => void;
 }) {
-  const active = current === column;
   return (
-    <th className={`p-4 ${className}`}>
-      <button
-        className="inline-flex items-center gap-1 text-left"
-        onClick={() => {
-          if (active) setSortDir(dir === "asc" ? "desc" : "asc");
-          setSortBy(column);
-        }}
-      >
-        {label}
-        {active ? dir === "asc" ? <Icon path="m18 15-6-6-6 6" size={12} /> : <Icon path="m6 9 6 6 6-6" size={12} /> : null}
-      </button>
-    </th>
-  );
-}
-
-function IconToggle({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button onClick={onClick} className={`rounded-full p-2 transition ${active ? "bg-blue-500/25 text-blue-300" : "text-white/50 hover:text-white hover:bg-white/10"}`}>
-      {children}
-    </button>
-  );
-}
-
-function EmptyState({ onReset, label = "검색 결과가 없습니다", buttonLabel = "필터 초기화" }: { onReset: () => void; label?: string; buttonLabel?: string }) {
-  return (
-    <div className="glass-card p-10 text-center">
-      <Icon path="M12 3C7 3 3 4.8 3 7v10c0 2.2 4 4 9 4s9-1.8 9-4V7c0-2.2-4-4-9-4Zm0 0c5 0 9 1.8 9 4s-4 4-9 4-9-1.8-9-4 4-4 9-4Zm-9 9c0 2.2 4 4 9 4s9-1.8 9-4" className="mx-auto text-white/30" size={20} />
-      <p className="mt-3 font-medium">{label}</p>
-      <button className="mt-4 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 hover:text-white" onClick={onReset}>
-        {buttonLabel}
-      </button>
+    <div className="dropdown-wrap">
+      <button className={`filter-pill ${selected.length ? "active" : ""}`} onClick={onOpen}>{title}</button>
+      {isOpen && (
+        <div className="dropdown-panel">
+          {options.length === 0 ? (
+            <p className="muted">옵션 없음</p>
+          ) : (
+            options.map((option) => (
+              <button key={option} className={`option-chip ${selected.includes(option) ? "active" : ""}`} onClick={() => onToggle(option)}>
+                {option}
+              </button>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function StatCard({ label, value, loading }: { label: string; value: string; loading: boolean }) {
+function HeaderCell({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
-    <article className="glass-card p-4">
-      <p className="text-sm text-white/60">{label}</p>
-      {loading ? <div className="skeleton mt-2 h-7 w-[60px]" /> : <p className="mt-1 text-2xl font-semibold">{value}</p>}
-    </article>
+    <th>
+      <button className={`header-btn ${active ? "active" : ""}`} onClick={onClick}>{label}</button>
+    </th>
+  );
+}
+
+function Pagination({ page, pages, total, onPage }: { page: number; pages: number; total: number; onPage: (page: number) => void }) {
+  return (
+    <div className="pagination">
+      <button className="mini-pill" disabled={page <= 1} onClick={() => onPage(page - 1)}>이전</button>
+      <span className="muted">{page} / {pages} · {total.toLocaleString()}개</span>
+      <button className="mini-pill" disabled={page >= pages} onClick={() => onPage(page + 1)}>다음</button>
+    </div>
   );
 }
 
 function TableSkeleton() {
   return (
-    <div className="glass-card p-4 space-y-3">
-      {Array.from({ length: 10 }).map((_, idx) => (
-        <div key={idx} className="grid grid-cols-4 gap-3">
-          <div className="skeleton h-5" />
-          <div className="skeleton h-5" />
-          <div className="skeleton h-5" />
-          <div className="skeleton h-5" />
-        </div>
-      ))}
+    <div className="glass panel-space">
+      {Array.from({ length: 8 }).map((_, idx) => <div key={idx} className="skeleton-row" />)}
     </div>
   );
 }
 
 function CardSkeleton() {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, idx) => (
-        <div key={idx} className="glass-card p-6 space-y-3">
-          <div className="skeleton h-5" />
-          <div className="skeleton h-4 w-2/3" />
-          <div className="skeleton h-4 w-1/3" />
-        </div>
+    <div className="fund-grid">
+      {Array.from({ length: 6 }).map((_, idx) => <div key={idx} className="glass skeleton-card" />)}
+    </div>
+  );
+}
+
+function EmptyState({ label, onReset }: { label: string; onReset: () => void }) {
+  return (
+    <article className="glass empty-state">
+      <p>{label}</p>
+      <button className="mini-pill active" onClick={onReset}>필터 초기화</button>
+    </article>
+  );
+}
+
+function StatGrid({ cards, loading }: { cards: { label: string; value: string }[]; loading: boolean }) {
+  return (
+    <section className="stats-grid">
+      {cards.map((card) => (
+        <article key={card.label} className="glass stat-card">
+          <p className="muted">{card.label}</p>
+          {loading ? <div className="skeleton-row" /> : <p className="number num-white">{card.value}</p>}
+        </article>
       ))}
-    </div>
+    </section>
   );
 }
 
-function MetaCard({ title, items, tone }: { title: string; items: string[]; tone: "blue" | "emerald" }) {
-  const toneClass = tone === "blue" ? "border-blue-500/30 bg-blue-500/15 text-blue-300" : "border-emerald-500/30 bg-emerald-500/15 text-emerald-300";
-  return (
-    <div className="glass-card p-4">
-      <h3 className="mb-3 text-sm text-white/60">{title}</h3>
-      <div className="flex flex-wrap gap-2">
-        {items.length ? items.map((item) => <span key={item} className={`rounded-full border px-2.5 py-1 text-xs ${toneClass}`}>{item}</span>) : <span className="text-sm text-white/40">-</span>}
-      </div>
-    </div>
-  );
-}
-
-function Info({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-      <div className="text-xs text-white/40">{label}</div>
-      <div className={mono ? "font-mono text-blue-300" : "text-white/90"}>{value || "-"}</div>
-    </div>
-  );
-}
 
 export default App;
