@@ -23,6 +23,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const {
       sector,
+      search,
       stage,
       active,
       govt,
@@ -48,6 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // GET /api/funds → 펀드 목록
     const result = await listFunds({
+      search: search as string,
       sector: sector as string,
       stage: stage as string,
       active: active !== "false",
@@ -58,8 +60,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       lifecycle: lifecycle as string,
       sort: validSort,
       page: page ? parseInt(page as string) : 1,
-      limit: limit ? Math.min(parseInt(limit as string), 50) : 20,
+      limit: limit ? Math.min(parseInt(limit as string), 50) : 50,
     });
+
+    res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
 
     return res.status(200).json(result);
   } catch (error: any) {

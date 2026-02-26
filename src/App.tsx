@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 
 type Fund = {
@@ -141,9 +141,10 @@ function App() {
 }
 
 function FundsPage({ params }: { params: URLSearchParams }) {
-  const ITEMS_PER_PAGE = 50;
   const [funds, setFunds] = useState<Fund[]>([]);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, pages: 1, limit: 50 });
   const [loading, setLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
   const [query, setQuery] = useState(params.get("q") ?? "");
   const [view, setView] = useState<ViewType>((params.get("view") as ViewType) ?? "table");
   const [sortBy, setSortBy] = useState<SortKey>((params.get("sortBy") as SortKey) ?? "fund_name");
@@ -154,7 +155,9 @@ function FundsPage({ params }: { params: URLSearchParams }) {
     size: params.getAll("size"),
   });
   const [openFilter, setOpenFilter] = useState<"stage" | "sector" | "size" | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(Number(params.get("page") || 1));
+  const [stats, setStats] = useState<any>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
   const filterRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = debounce(query, 300);
 
@@ -166,30 +169,54 @@ function FundsPage({ params }: { params: URLSearchParams }) {
       registered_date: `registered_${sortDir}`,
     };
 
-    const fetchAllFunds = async () => {
-      const chunkSize = 50;
-      let page = 1;
-      let hasMore = true;
-      const allFunds: Fund[] = [];
-
-      while (hasMore) {
-        const response = await fetch(`/api/funds?page=${page}&limit=${chunkSize}&sort=${sortMap[sortBy] || "amount_desc"}`);
-        const data = await response.json();
-        const chunk = data.funds || [];
-        allFunds.push(...chunk);
-        hasMore = chunk.length === chunkSize;
-        page += 1;
-      }
-
-      return allFunds;
+    const sizeToRange = (size: string) => {
+      if (size === "~300억") return { min: undefined, max: 300 };
+      if (size === "300~1000억") return { min: 300, max: 1000 };
+      if (size === "1000억~") return { min: 1000, max: undefined };
+      return { min: undefined, max: undefined };
     };
 
-    setLoading(true);
-    fetchAllFunds()
-      .then((allFunds) => setFunds(allFunds))
-      .catch(() => setFunds([]))
-      .finally(() => setLoading(false));
-  }, [sortBy, sortDir]);
+    const selectedSize = filters.size[0];
+    const sizeRange = selectedSize ? sizeToRange(selectedSize) : { min: undefined, max: undefined };
+
+    const sp = new URLSearchParams();
+    sp.set("page", String(currentPage));
+    sp.set("limit", "50");
+    sp.set("sort", sortMap[sortBy] || "amount_desc");
+    if (debouncedQuery.trim()) sp.set("search", debouncedQuery.trim());
+    if (filters.sector[0]) sp.set("sector", filters.sector[0]);
+    if (filters.stage[0]) sp.set("stage", filters.stage[0]);
+    if (sizeRange.min !== undefined) sp.set("min_amount", String(sizeRange.min));
+    if (sizeRange.max !== undefined) sp.set("max_amount", String(sizeRange.max));
+
+    const initialLoading = funds.length === 0;
+    if (initialLoading) setLoading(true);
+    setIsFetching(true);
+
+    fetch(`/api/funds?${sp.toString()}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setFunds(data.funds || []);
+        setPagination(data.pagination || { total: 0, page: currentPage, pages: 1, limit: 50 });
+      })
+      .catch(() => {
+        setFunds([]);
+        setPagination({ total: 0, page: 1, pages: 1, limit: 50 });
+      })
+      .finally(() => {
+        setLoading(false);
+        setIsFetching(false);
+      });
+  }, [sortBy, sortDir, debouncedQuery, filters, currentPage]);
+
+  useEffect(() => {
+    setStatsLoading(true);
+    fetch('/api/fund-stats')
+      .then((r) => r.json())
+      .then((d) => setStats(d.overview || d))
+      .catch(() => setStats(null))
+      .finally(() => setStatsLoading(false));
+  }, []);
 
   useEffect(() => {
     const onClickOutside = (event: MouseEvent) => {
@@ -212,41 +239,19 @@ function FundsPage({ params }: { params: URLSearchParams }) {
     if (view !== "table") sp.set("view", view);
     sp.set("sortBy", sortBy);
     sp.set("sortDir", sortDir);
+    sp.set("page", String(currentPage));
     Object.entries(filters).forEach(([k, vals]) => vals.forEach((v) => sp.append(k, v)));
     navigate(`/?${sp.toString()}`);
-  }, [query, view, sortBy, sortDir, filters]);
+  }, [query, view, sortBy, sortDir, filters, currentPage]);
 
-  const options = useMemo(() => {
-    const stageSet = new Set<string>();
-    const sectorSet = new Set<string>();
-    funds.forEach((f) => {
-      (f.all_tags || []).forEach((v) => stageSet.add(v));
-      (f.sector_tags || []).forEach((v) => sectorSet.add(v));
-    });
-    return {
-      stage: [...stageSet].slice(0, 10),
-      sector: [...sectorSet].slice(0, 20),
-      size: ["~300억", "300~1000억", "1000억~"],
-    };
-  }, [funds]);
-
-  const filtered = useMemo(() => {
-    return funds.filter((f) => {
-      const searchable = `${f.fund_name} ${f.company_name} ${(f.sector_tags || []).join(" ")} ${(f.all_tags || []).join(" ")}`.toLowerCase();
-      if (debouncedQuery && !searchable.includes(debouncedQuery.toLowerCase())) return false;
-
-      const sizeBucket = (f.amount_억 || 0) < 300 ? "~300억" : (f.amount_억 || 0) < 1000 ? "300~1000억" : "1000억~";
-      const checks: Record<string, boolean> = {
-        stage: filters.stage.length === 0 || filters.stage.some((v) => (f.all_tags || []).includes(v)),
-        sector: filters.sector.length === 0 || filters.sector.some((v) => (f.sector_tags || []).includes(v)),
-        size: filters.size.length === 0 || filters.size.includes(sizeBucket),
-      };
-      return Object.values(checks).every(Boolean);
-    });
-  }, [funds, debouncedQuery, filters]);
+  const options = {
+    stage: ["초기투자", "성장투자", "세컨더리", "창업", "스케일업"],
+    sector: ["AI/SW", "바이오", "핀테크", "딥테크", "콘텐츠", "헬스케어"],
+    size: ["~300억", "300~1000억", "1000억~"],
+  };
 
   const toggle = (k: string, v: string) => {
-    setFilters((prev) => ({ ...prev, [k]: prev[k].includes(v) ? prev[k].filter((x) => x !== v) : [...prev[k], v] }));
+    setFilters((prev) => ({ ...prev, [k]: prev[k].includes(v) ? [] : [v] }));
   };
 
   const resetFilters = () => {
@@ -254,10 +259,8 @@ function FundsPage({ params }: { params: URLSearchParams }) {
     setQuery("");
     setCurrentPage(1);
   };
-  const activeFilters = Object.entries(filters).flatMap(([k, vals]) => vals.map((v) => ({ key: k, value: v })));
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
-  const paginatedFunds = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
+  const activeFilters = Object.entries(filters).flatMap(([k, vals]) => vals.map((v) => ({ key: k, value: v })));
   const filterLabel: Record<"stage" | "sector" | "size", string> = {
     stage: "투자단계",
     sector: "섹터",
@@ -266,6 +269,13 @@ function FundsPage({ params }: { params: URLSearchParams }) {
 
   return (
     <section className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="총 펀드" value={stats?.total_funds?.toLocaleString() || "-"} loading={statsLoading} />
+        <StatCard label="활성 펀드" value={stats?.active_funds?.toLocaleString() || "-"} loading={statsLoading} />
+        <StatCard label="태깅된 펀드" value={stats?.tagged_funds?.toLocaleString() || "-"} loading={statsLoading} />
+        <StatCard label="정부매칭 펀드" value={stats?.govt_funds?.toLocaleString() || "-"} loading={statsLoading} />
+      </div>
+
       <div className="glass-card p-4 md:p-5 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative min-w-72 flex-1">
@@ -277,59 +287,28 @@ function FundsPage({ params }: { params: URLSearchParams }) {
               className="w-full rounded-xl border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white outline-none ring-blue-500/40 placeholder:text-white/40 focus:ring"
             />
           </div>
-          <span className="rounded-full bg-blue-500/20 px-3 py-1 text-sm text-blue-300">{filtered.length.toLocaleString()}개 펀드</span>
+          <span className="rounded-full bg-blue-500/20 px-3 py-1 text-sm text-blue-300">{loading ? "로딩중..." : `${pagination.total.toLocaleString()}개 펀드`}</span>
         </div>
 
         <div ref={filterRef} className="relative z-10 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-          {(["stage", "sector", "size"] as const).map((k) => (
-            <button
-              key={k}
-              onClick={() => setOpenFilter((prev) => (prev === k ? null : k))}
-              className="cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white"
-            >
-              {filterLabel[k]}
-            </button>
-          ))}
-          <button className="ml-auto text-sm text-white/40 transition hover:text-white" onClick={resetFilters}>전체 초기화</button>
-        </div>
+            {(["stage", "sector", "size"] as const).map((k) => (
+              <button key={k} onClick={() => setOpenFilter((prev) => (prev === k ? null : k))} className="cursor-pointer rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/70 transition hover:bg-white/10 hover:text-white">{filterLabel[k]}</button>
+            ))}
+            <button className="ml-auto text-sm text-white/40 transition hover:text-white" onClick={resetFilters}>전체 초기화</button>
+          </div>
 
           {openFilter && (
             <div className="w-full rounded-2xl border border-white/10 bg-[#111117]/95 p-3 backdrop-blur-xl">
               <div className="mb-2 text-xs text-white/40">{filterLabel[openFilter]} 선택</div>
               <div className="flex flex-wrap gap-2">
                 {options[openFilter].map((o) => (
-                  <button
-                    key={o}
-                    onClick={() => toggle(openFilter, o)}
-                    className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${
-                      filters[openFilter].includes(o)
-                        ? "border-blue-500/30 bg-blue-500/20 text-blue-300"
-                        : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
-                    }`}
-                  >
-                    {o}
-                  </button>
+                  <button key={o} onClick={() => toggle(openFilter, o)} className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${filters[openFilter].includes(o) ? "border-blue-500/30 bg-blue-500/20 text-blue-300" : "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"}`}>{o}</button>
                 ))}
               </div>
             </div>
           )}
         </div>
-
-        {activeFilters.length > 0 && (
-          <div className="flex flex-wrap gap-2 border-t border-white/10 pt-3">
-            {activeFilters.map((item) => (
-              <button
-                key={`${item.key}-${item.value}`}
-                onClick={() => toggle(item.key, item.value)}
-                className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/20 px-3 py-1 text-xs text-blue-300"
-              >
-                {item.key}: {item.value}
-                <Icon path="M18 6 6 18M6 6l12 12" size={12} />
-              </button>
-            ))}
-          </div>
-        )}
 
         <div className="flex items-center justify-between border-t border-white/10 pt-3">
           <span className="text-xs uppercase tracking-widest text-white/40">View</span>
@@ -340,12 +319,11 @@ function FundsPage({ params }: { params: URLSearchParams }) {
         </div>
       </div>
 
-      {loading ? (
-        view === "table" ? <TableSkeleton /> : <CardSkeleton />
-      ) : filtered.length === 0 ? (
+      {(loading && view === "table") ? <TableSkeleton /> : (loading && view === "card") ? <CardSkeleton /> : funds.length === 0 ? (
         <EmptyState onReset={resetFilters} buttonLabel="초기화" />
       ) : view === "table" ? (
         <div className="glass-card overflow-hidden">
+          {isFetching && <div className="px-4 py-2 text-xs text-white/40">업데이트 중...</div>}
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wider text-white/40">
@@ -356,12 +334,9 @@ function FundsPage({ params }: { params: URLSearchParams }) {
               </tr>
             </thead>
             <tbody>
-              {paginatedFunds.map((f) => (
+              {funds.map((f) => (
                 <tr key={f.asct_id} className="cursor-pointer border-b border-white/5 transition hover:bg-white/[0.03]" onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}>
-                  <td className="p-4 font-medium text-white">
-                    {highlight(f.fund_name, debouncedQuery)}
-                    <div className="mt-1 text-xs text-white/60 md:hidden">{highlight(f.company_name, debouncedQuery)}</div>
-                  </td>
+                  <td className="p-4 font-medium text-white">{highlight(f.fund_name, debouncedQuery)}<div className="mt-1 text-xs text-white/60 md:hidden">{highlight(f.company_name, debouncedQuery)}</div></td>
                   <td className="hidden p-4 text-white/60 md:table-cell">{highlight(f.company_name, debouncedQuery)}</td>
                   <td className="hidden p-4 font-mono text-blue-300 md:table-cell">{f.amount_억?.toLocaleString() || "-"}</td>
                   <td className="hidden p-4 text-white/60 md:table-cell">{f.registered_date?.slice(0, 10) || "-"}</td>
@@ -371,55 +346,38 @@ function FundsPage({ params }: { params: URLSearchParams }) {
           </table>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {paginatedFunds.map((f) => (
-            <article
-              key={f.asct_id}
-              className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 transition hover:border-blue-500/20 hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer"
-              onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}
-            >
-              <h3 className="font-semibold text-white">{highlight(f.fund_name, debouncedQuery)}</h3>
-              <p className="mt-1 text-sm text-white/60">{f.company_name}</p>
-              <p className="mt-4 font-mono text-sm text-blue-300">{formatAmount(f.amount_억)}</p>
-              <div className="mt-4 flex flex-wrap gap-1.5">
-                {(f.sector_tags || []).slice(0, 5).map((tag) => (
-                  <span key={tag} className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300">{tag}</span>
-                ))}
-              </div>
-            </article>
-          ))}
+        <>
+          {isFetching && <div className="text-xs text-white/40">업데이트 중...</div>}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {funds.map((f) => (
+              <article key={f.asct_id} className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 transition hover:border-blue-500/20 hover:shadow-lg hover:shadow-blue-500/5 cursor-pointer" onClick={() => navigate(`/fund/${encodeURIComponent(f.asct_id)}`)}>
+                <h3 className="font-semibold text-white">{highlight(f.fund_name, debouncedQuery)}</h3>
+                <p className="mt-1 text-sm text-white/60">{f.company_name}</p>
+                <p className="mt-4 font-mono text-sm text-blue-300">{formatAmount(f.amount_억)}</p>
+                <div className="mt-4 flex flex-wrap gap-1.5">{(f.sector_tags || []).slice(0, 5).map((tag) => (<span key={tag} className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-1 text-xs text-emerald-300">{tag}</span>))}</div>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!loading && funds.length > 0 && (
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))} disabled={pagination.page === 1} className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/70 disabled:cursor-not-allowed disabled:opacity-40">이전</button>
+          {Array.from({ length: pagination.pages }).slice(Math.max(0, pagination.page - 3), Math.max(0, pagination.page - 3) + 5).map((_, idx) => {
+            const pageNum = Math.max(1, pagination.page - 2) + idx;
+            if (pageNum > pagination.pages) return null;
+            return <button key={pageNum} onClick={() => setCurrentPage(pageNum)} className={`rounded-lg px-3 py-1.5 text-sm ${pageNum === pagination.page ? "bg-blue-500/25 text-blue-300" : "border border-white/10 bg-white/5 text-white/70"}`}>{pageNum}</button>;
+          })}
+          <button onClick={() => setCurrentPage((prev) => Math.min(pagination.pages, prev + 1))} disabled={pagination.page === pagination.pages} className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/70 disabled:cursor-not-allowed disabled:opacity-40">다음</button>
         </div>
       )}
 
-      {!loading && filtered.length > 0 && (
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <button
-            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-            disabled={currentPage === 1}
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/70 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            이전
-          </button>
-          {Array.from({ length: totalPages }).slice(Math.max(0, currentPage - 3), Math.max(0, currentPage - 3) + 5).map((_, idx) => {
-            const pageNum = Math.max(1, currentPage - 2) + idx;
-            if (pageNum > totalPages) return null;
-            return (
-              <button
-                key={pageNum}
-                onClick={() => setCurrentPage(pageNum)}
-                className={`rounded-lg px-3 py-1.5 text-sm ${pageNum === currentPage ? "bg-blue-500/25 text-blue-300" : "border border-white/10 bg-white/5 text-white/70"}`}
-              >
-                {pageNum}
-              </button>
-            );
-          })}
-          <button
-            onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-            disabled={currentPage === totalPages}
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/70 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            다음
-          </button>
+      {activeFilters.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-t border-white/10 pt-3">
+          {activeFilters.map((item) => (
+            <button key={`${item.key}-${item.value}`} onClick={() => toggle(item.key, item.value)} className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/20 px-3 py-1 text-xs text-blue-300">{item.key}: {item.value}<Icon path="M18 6 6 18M6 6l12 12" size={12} /></button>
+          ))}
         </div>
       )}
     </section>
@@ -615,11 +573,25 @@ function EmptyState({ onReset, label = "검색 결과가 없습니다", buttonLa
   );
 }
 
+function StatCard({ label, value, loading }: { label: string; value: string; loading: boolean }) {
+  return (
+    <article className="glass-card p-4">
+      <p className="text-sm text-white/60">{label}</p>
+      {loading ? <div className="skeleton mt-2 h-7 w-[60px]" /> : <p className="mt-1 text-2xl font-semibold">{value}</p>}
+    </article>
+  );
+}
+
 function TableSkeleton() {
   return (
-    <div className="glass-card p-4 animate-pulse space-y-3">
-      {Array.from({ length: 8 }).map((_, idx) => (
-        <div key={idx} className="h-10 rounded-lg bg-white/5" />
+    <div className="glass-card p-4 space-y-3">
+      {Array.from({ length: 10 }).map((_, idx) => (
+        <div key={idx} className="grid grid-cols-4 gap-3">
+          <div className="skeleton h-5" />
+          <div className="skeleton h-5" />
+          <div className="skeleton h-5" />
+          <div className="skeleton h-5" />
+        </div>
       ))}
     </div>
   );
@@ -627,12 +599,12 @@ function TableSkeleton() {
 
 function CardSkeleton() {
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 animate-pulse">
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {Array.from({ length: 6 }).map((_, idx) => (
         <div key={idx} className="glass-card p-6 space-y-3">
-          <div className="h-5 rounded bg-white/10" />
-          <div className="h-4 w-2/3 rounded bg-white/5" />
-          <div className="h-4 w-1/3 rounded bg-blue-500/20" />
+          <div className="skeleton h-5" />
+          <div className="skeleton h-4 w-2/3" />
+          <div className="skeleton h-4 w-1/3" />
         </div>
       ))}
     </div>

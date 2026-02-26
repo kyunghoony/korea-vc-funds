@@ -32,6 +32,7 @@ function normalizeSort(sort: string): string {
 
 // === 펀드 목록 (필터링 + 페이지네이션) ===
 export interface FundListParams {
+  search?: string;
   sector?: string;
   stage?: string;
   active?: boolean;
@@ -49,6 +50,7 @@ export interface FundListParams {
 export async function listFunds(params: FundListParams) {
   const sql = getSQL();
   const {
+    search,
     sector,
     stage,
     active = true,
@@ -66,6 +68,7 @@ export async function listFunds(params: FundListParams) {
   const offset = (page - 1) * limit;
 
   const sectorVal = sector || null;
+  const searchVal = search ? `%${search}%` : null;
   const stageVal = stage || null;
   const companyVal = company ? `%${company}%` : null;
   const minAmountVal = minAmount || null;
@@ -79,6 +82,14 @@ export async function listFunds(params: FundListParams) {
     SELECT COUNT(*) as total FROM vc_funds
     WHERE (${active} = false OR is_active = TRUE)
       AND (${govtBool} = false OR is_govt_matched = TRUE)
+      AND (
+        ${searchVal}::text IS NULL
+        OR fund_name ILIKE ${searchVal}::text
+        OR company_name ILIKE ${searchVal}::text
+        OR EXISTS (
+          SELECT 1 FROM unnest(sector_tags) AS s WHERE s ILIKE ${searchVal}::text
+        )
+      )
       AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
       AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
       AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
@@ -91,7 +102,7 @@ export async function listFunds(params: FundListParams) {
   // Data query — must use tagged template per sort option (neon driver requires it)
   const dataResult = await queryFundsSorted(
     sql, normalizeSort(sort),
-    active, govtBool, sectorVal, stageVal, companyVal,
+    active, govtBool, searchVal, sectorVal, stageVal, companyVal,
     minAmountVal, maxAmountVal, lifecycleVal, regionVal,
     limit, offset,
   );
@@ -116,6 +127,7 @@ async function queryFundsSorted(
   sort: string,
   active: boolean,
   govtBool: boolean,
+  searchVal: string | null,
   sectorVal: string | null,
   stageVal: string | null,
   companyVal: string | null,
@@ -126,247 +138,60 @@ async function queryFundsSorted(
   limit: number,
   offset: number,
 ) {
-  // Macro-like: each branch has the same WHERE, different ORDER BY
-  // Using tagged template literals for safe parameter binding
+  const orderByMap: Record<string, string> = {
+    amount_desc: 'amount_억 DESC NULLS LAST',
+    amount_asc: 'amount_억 ASC NULLS LAST',
+    registered_desc: 'registered_date DESC NULLS LAST',
+    registered_asc: 'registered_date ASC NULLS LAST',
+    maturity_desc: 'maturity_date DESC NULLS LAST',
+    maturity_asc: 'maturity_date ASC NULLS LAST',
+    company_asc: 'company_name ASC',
+    company_desc: 'company_name DESC',
+    fund_name_asc: 'fund_name ASC',
+    fund_name_desc: 'fund_name DESC',
+    govt_desc: 'is_govt_matched DESC',
+    govt_asc: 'is_govt_matched ASC',
+  };
 
-  if (sort === "amount_asc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY amount_억 ASC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "registered_desc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY registered_date DESC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "registered_asc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY registered_date ASC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "maturity_desc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY maturity_date DESC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "maturity_asc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY maturity_date ASC NULLS LAST
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "company_asc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY company_name ASC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "company_desc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY company_name DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "fund_name_asc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY fund_name ASC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "fund_name_desc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY fund_name DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "govt_desc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY is_govt_matched DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  if (sort === "govt_asc") {
-    return sql`
-      SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-             fund_manager_name, support_type, account_type, total_amount, amount_억,
-             sector_tags, is_govt_matched, is_active, lifecycle, has_sector
-      FROM vc_funds
-      WHERE (${active} = false OR is_active = TRUE)
-        AND (${govtBool} = false OR is_govt_matched = TRUE)
-        AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-        AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-        AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-        AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-        AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-        AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-        AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-      ORDER BY is_govt_matched ASC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
-  }
-
-  // Default: amount_desc
-  return sql`
-    SELECT asct_id, company_name, fund_name, registered_date, maturity_date,
-           fund_manager_name, support_type, account_type, total_amount, amount_억,
-           sector_tags, is_govt_matched, is_active, lifecycle, has_sector
+  const orderBy = orderByMap[sort] || orderByMap.amount_desc;
+  const query = `
+    SELECT asct_id, fund_name, company_name, amount_억, registered_date, sector_tags, all_tags, lifecycle
     FROM vc_funds
-    WHERE (${active} = false OR is_active = TRUE)
-      AND (${govtBool} = false OR is_govt_matched = TRUE)
-      AND (${sectorVal}::text IS NULL OR ${sectorVal}::text = ANY(sector_tags))
-      AND (${stageVal}::text IS NULL OR ${stageVal}::text = ANY(all_tags))
-      AND (${companyVal}::text IS NULL OR company_name ILIKE ${companyVal}::text)
-      AND (${minAmountVal}::int IS NULL OR amount_억 >= ${minAmountVal}::int)
-      AND (${maxAmountVal}::int IS NULL OR amount_억 <= ${maxAmountVal}::int)
-      AND (${lifecycleVal}::text IS NULL OR lifecycle = ${lifecycleVal}::text)
-      AND (${regionVal}::text IS NULL OR ${regionVal}::text = ANY(sector_tags))
-    ORDER BY amount_억 DESC NULLS LAST
-    LIMIT ${limit} OFFSET ${offset}
+    WHERE ($1::boolean = false OR is_active = TRUE)
+      AND ($2::boolean = false OR is_govt_matched = TRUE)
+      AND (
+        $3::text IS NULL
+        OR fund_name ILIKE $3::text
+        OR company_name ILIKE $3::text
+        OR EXISTS (
+          SELECT 1 FROM unnest(sector_tags) AS s WHERE s ILIKE $3::text
+        )
+      )
+      AND ($4::text IS NULL OR $4::text = ANY(sector_tags))
+      AND ($5::text IS NULL OR $5::text = ANY(all_tags))
+      AND ($6::text IS NULL OR company_name ILIKE $6::text)
+      AND ($7::int IS NULL OR amount_억 >= $7::int)
+      AND ($8::int IS NULL OR amount_억 <= $8::int)
+      AND ($9::text IS NULL OR lifecycle = $9::text)
+      AND ($10::text IS NULL OR $10::text = ANY(sector_tags))
+    ORDER BY ${orderBy}
+    LIMIT $11 OFFSET $12
   `;
+
+  return sql(query, [
+    active,
+    govtBool,
+    searchVal,
+    sectorVal,
+    stageVal,
+    companyVal,
+    minAmountVal,
+    maxAmountVal,
+    lifecycleVal,
+    regionVal,
+    limit,
+    offset,
+  ]);
 }
 
 // === 펀드 상세 ===

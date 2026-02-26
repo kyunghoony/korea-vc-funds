@@ -21,3 +21,16 @@ body {
 mark {
   @apply rounded px-0.5 text-blue-100 bg-blue-500/30;
 }
+
+
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.02) 100%);
+  background-size: 400px 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
