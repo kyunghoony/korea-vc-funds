@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/*.ts": {
-      "includeFiles": "services/**"
+      "includeFiles": ["services/**", "data/funds.json"],
+      "maxDuration": 300
     }
   }
 }
